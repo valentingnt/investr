@@ -1,0 +1,22 @@
+{
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:investr}/InvestrApp",
+      "name": "Debug InvestrApp (InvestrApp)",
+      "program": "${workspaceFolder:investr}/InvestrApp/.build/debug/InvestrApp",
+      "preLaunchTask": "swift: Build Debug InvestrApp (InvestrApp)"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:investr}/InvestrApp",
+      "name": "Release InvestrApp (InvestrApp)",
+      "program": "${workspaceFolder:investr}/InvestrApp/.build/release/InvestrApp",
+      "preLaunchTask": "swift: Build Release InvestrApp (InvestrApp)"
+    }
+  ]
+}
