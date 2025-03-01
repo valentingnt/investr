@@ -53,7 +53,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "RAPIDAPI_KEY"
-            value = "ad9d206d1emsh247e83f1332d818p1138dejsn2ebb4d60ae0b"
+            value = "140c52c9e3msh631a2a5af0093b7p196aebjsnea65484d903e"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
