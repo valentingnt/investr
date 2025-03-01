@@ -172,56 +172,43 @@ class ETFService: BaseAssetService, AssetServiceProtocol {
         } catch let error as CancellationError {
             print("⚠️ ETFService task was cancelled for \(asset.symbol): \(error.localizedDescription)")
             
-            // Use fallback data even for cancellation errors to show something to the user
-            if let fallbackData = emergencyPriceData[asset.symbol] {
-                print("Using emergency fallback data for \(asset.symbol) due to cancellation")
-                
-                let totalQuantity = calculateTotalQuantity(transactions: transactions)
-                let totalCost = calculateTotalCost(transactions: transactions)
-                let totalValue = totalQuantity * fallbackData.price
-                
-                return AssetViewModel(
-                    id: asset.id,
-                    name: asset.name,
-                    symbol: asset.symbol,
-                    type: asset.type,
-                    currentPrice: fallbackData.price,
-                    totalValue: totalValue,
-                    totalQuantity: totalQuantity,
-                    averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
-                    profitLoss: totalValue - totalCost,
-                    profitLossPercentage: totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0,
-                    change24h: fallbackData.change24h
-                )
-            }
-            return nil 
+            // Don't use fallback data, just return minimal data with no speculation
+            let totalQuantity = calculateTotalQuantity(transactions: transactions)
+            let totalCost = calculateTotalCost(transactions: transactions)
+            
+            return AssetViewModel(
+                id: asset.id,
+                name: asset.name,
+                symbol: asset.symbol,
+                type: asset.type,
+                currentPrice: 0.00,
+                totalValue: 0.00,
+                totalQuantity: totalQuantity,
+                averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
+                profitLoss: 0.00,
+                profitLossPercentage: 0.00,
+                change24h: nil
+            )
         } catch {
             print("⚠️ ETFService error for \(asset.symbol): \(error.localizedDescription)")
             
-            // Check if we have an emergency fallback for this ETF/stock
-            if let fallbackData = emergencyPriceData[asset.symbol] {
-                print("Using emergency fallback data for \(asset.symbol)")
-                
-                let totalQuantity = calculateTotalQuantity(transactions: transactions)
-                let totalCost = calculateTotalCost(transactions: transactions)
-                let totalValue = totalQuantity * fallbackData.price
-                
-                return AssetViewModel(
-                    id: asset.id,
-                    name: asset.name,
-                    symbol: asset.symbol,
-                    type: asset.type,
-                    currentPrice: fallbackData.price,
-                    totalValue: totalValue,
-                    totalQuantity: totalQuantity,
-                    averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
-                    profitLoss: totalValue - totalCost,
-                    profitLossPercentage: totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0,
-                    change24h: fallbackData.change24h
-                )
-            }
+            // Don't use fallback data, just return minimal data with no speculation
+            let totalQuantity = calculateTotalQuantity(transactions: transactions)
+            let totalCost = calculateTotalCost(transactions: transactions)
             
-            return nil
+            return AssetViewModel(
+                id: asset.id,
+                name: asset.name,
+                symbol: asset.symbol,
+                type: asset.type,
+                currentPrice: 0.00,
+                totalValue: 0.00,
+                totalQuantity: totalQuantity,
+                averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
+                profitLoss: 0.00,
+                profitLossPercentage: 0.00,
+                change24h: nil
+            )
         }
     }
     
@@ -276,22 +263,16 @@ class ETFService: BaseAssetService, AssetServiceProtocol {
             }
             
             if httpResponse.statusCode == 429 {
-                // If we get a rate limit response, use cached data or fallback if available
+                // If we get a rate limit response, use cached data or throw error
                 if let cached = priceCache[symbol], Date().timeIntervalSince(cached.timestamp) < 24 * 60 * 60 {
                     print("Rate limit reached, using cached data for \(symbol)")
                     return cached.price
-                } else if let fallback = emergencyPriceData[symbol] {
-                    print("Rate limit reached, using emergency fallback for \(symbol)")
-                    return fallback
                 }
                 throw NSError(domain: "ETFService", code: 429, userInfo: [NSLocalizedDescriptionKey: "API rate limit exceeded"])
             }
             
             if httpResponse.statusCode != 200 {
-                print("HTTP error \(httpResponse.statusCode) for \(symbol) - checking for fallback")
-                if let fallback = emergencyPriceData[symbol] {
-                    return fallback
-                }
+                print("HTTP error \(httpResponse.statusCode) for \(symbol)")
                 throw NSError(domain: "ETFService", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP Error: \(httpResponse.statusCode)"])
             }
             
@@ -394,30 +375,23 @@ class CryptoService: BaseAssetService, AssetServiceProtocol {
         } catch {
             print("⚠️ CryptoService error for \(asset.symbol): \(error.localizedDescription)")
             
-            // Check if we have an emergency fallback for this crypto
-            if let fallbackData = emergencyPriceData[asset.symbol] {
-                print("Using emergency fallback data for \(asset.symbol)")
-                
-                let totalQuantity = calculateTotalQuantity(transactions: transactions)
-                let totalCost = calculateTotalCost(transactions: transactions)
-                let totalValue = totalQuantity * fallbackData.price
-                
-                return AssetViewModel(
-                    id: asset.id,
-                    name: asset.name,
-                    symbol: asset.symbol,
-                    type: asset.type,
-                    currentPrice: fallbackData.price,
-                    totalValue: totalValue,
-                    totalQuantity: totalQuantity,
-                    averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
-                    profitLoss: totalValue - totalCost,
-                    profitLossPercentage: totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0,
-                    change24h: fallbackData.change24h
-                )
-            }
+            // Don't use fallback data, just return minimal data with no speculation
+            let totalQuantity = calculateTotalQuantity(transactions: transactions)
+            let totalCost = calculateTotalCost(transactions: transactions)
             
-            return nil
+            return AssetViewModel(
+                id: asset.id,
+                name: asset.name,
+                symbol: asset.symbol,
+                type: asset.type,
+                currentPrice: 0.00,
+                totalValue: 0.00,
+                totalQuantity: totalQuantity,
+                averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
+                profitLoss: 0.00,
+                profitLossPercentage: 0.00,
+                change24h: nil
+            )
         }
     }
     
@@ -434,11 +408,6 @@ class CryptoService: BaseAssetService, AssetServiceProtocol {
         
         // Get CoinGecko ID for the symbol
         guard let coinGeckoId = symbolToIdMap[symbol] else {
-            // Try emergency fallback first
-            if let fallback = emergencyPriceData[symbol] {
-                print("Unknown cryptocurrency \(symbol), but found in fallback data")
-                return fallback
-            }
             throw NSError(domain: "CryptoService", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown cryptocurrency symbol: \(symbol)"])
         }
         
@@ -451,10 +420,6 @@ class CryptoService: BaseAssetService, AssetServiceProtocol {
         let urlString = "https://coingecko.p.rapidapi.com/simple/price?ids=\(coinGeckoId)&vs_currencies=eur&include_24hr_change=true"
         
         guard let url = URL(string: urlString) else {
-            // Try emergency fallback if we can't create URL
-            if let fallback = emergencyPriceData[symbol] {
-                return fallback
-            }
             throw NSError(domain: "CryptoService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
         }
         
@@ -465,11 +430,6 @@ class CryptoService: BaseAssetService, AssetServiceProtocol {
         
         guard let rapidApiKey = ProcessInfo.processInfo.environment["RAPIDAPI_KEY"],
               !rapidApiKey.isEmpty else {
-            // Try emergency fallback if no API key
-            if let fallback = emergencyPriceData[symbol] {
-                print("No API key, using emergency fallback for \(symbol)")
-                return fallback
-            }
             throw NSError(domain: "CryptoService", code: 1, userInfo: [NSLocalizedDescriptionKey: "RAPIDAPI_KEY environment variable is not set"])
         }
         
@@ -484,30 +444,20 @@ class CryptoService: BaseAssetService, AssetServiceProtocol {
             try Task.checkCancellation()
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                // Try fallback if the response isn't HTTP
-                if let fallback = emergencyPriceData[symbol] {
-                    return fallback
-                }
                 throw NSError(domain: "CryptoService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])
             }
             
             if httpResponse.statusCode == 429 {
-                // If we hit rate limit, use cached data or fallback
+                // If we hit rate limit, use cached data or throw error
                 if let cached = priceCache[symbol], Date().timeIntervalSince(cached.timestamp) < 24 * 60 * 60 {
                     print("Rate limit reached, using cached data for \(symbol)")
                     return cached.price
-                } else if let fallback = emergencyPriceData[symbol] {
-                    print("Rate limit reached, using emergency fallback for \(symbol)")
-                    return fallback
                 }
                 throw NSError(domain: "CryptoService", code: 429, userInfo: [NSLocalizedDescriptionKey: "API rate limit exceeded"])
             }
             
             if httpResponse.statusCode != 200 {
-                print("HTTP error \(httpResponse.statusCode) for \(symbol) - checking for fallback")
-                if let fallback = emergencyPriceData[symbol] {
-                    return fallback
-                }
+                print("HTTP error \(httpResponse.statusCode) for \(symbol)")
                 throw NSError(domain: "CryptoService", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP Error: \(httpResponse.statusCode)"])
             }
             
@@ -531,19 +481,6 @@ class CryptoService: BaseAssetService, AssetServiceProtocol {
                 // Silently retry after waiting
                 try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
                 return try await getPrice(symbol: symbol)
-            }
-            
-            // Only use emergency data in critical cases where the app would otherwise crash
-            if let nsError = error as? NSError, 
-               nsError.domain == "CryptoService" && 
-               (nsError.code == 1 || nsError.code == 429), // API key or rate limiting issues
-               let emergencyData = emergencyPriceData[symbol] {
-                return emergencyData
-            }
-            
-            // For cancellation errors, try to provide a fallback
-            if error is CancellationError, let fallback = emergencyPriceData[symbol] {
-                return fallback
             }
             
             throw error

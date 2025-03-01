@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showingAddTransaction = false
     @State private var isLoadingInProgress = false
     @State private var refreshTask: Task<Void, Never>?
+    @State private var namespace = Namespace().wrappedValue
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -52,6 +53,7 @@ struct ContentView: View {
                     .refreshable {
                         await loadData()
                     }
+                    .animation(.smooth, value: portfolioItems)
             }
             .tabItem {
                 Label("Portfolio", systemImage: "chart.pie.fill")
@@ -122,6 +124,8 @@ struct ContentView: View {
                         Text("\(FormatHelper.formatCurrency(portfolioValue)) €")
                             .font(.system(size: 28, weight: .bold, design: .monospaced))
                             .foregroundColor(Theme.Colors.primaryText)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: portfolioValue)
                         
                         if isLoading || isRefreshing {
                             ProgressView()
@@ -168,8 +172,13 @@ struct ContentView: View {
                                 ($0.type == .savings && $0.hasTransactions) || 
                                 ($0.type != .savings && $0.totalQuantity > 0) 
                             }) { item in
-                                NavigationLink(destination: AssetDetailView(asset: item)) {
+                                NavigationLink(destination: AssetDetailView(asset: item)
+                                    .navigationTitle(item.name)
+                                    .navigationBarTitleDisplayMode(.large)
+                                    .navigationTransition(.zoom(sourceID: "asset_\(item.id)", in: namespace))
+                                ) {
                                     assetRow(item: item)
+                                        .matchedTransitionSource(id: "asset_\(item.id)", in: namespace)
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
@@ -191,8 +200,13 @@ struct ContentView: View {
                                     .padding(.bottom, 4)
                                 
                                 ForEach(archivedAssets) { item in
-                                    NavigationLink(destination: AssetDetailView(asset: item)) {
+                                    NavigationLink(destination: AssetDetailView(asset: item)
+                                        .navigationTitle(item.name)
+                                        .navigationBarTitleDisplayMode(.large)
+                                        .navigationTransition(.zoom(sourceID: "asset_\(item.id)", in: namespace))
+                                    ) {
                                         assetRow(item: item)
+                                            .matchedTransitionSource(id: "asset_\(item.id)", in: namespace)
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                 }
@@ -236,14 +250,20 @@ struct ContentView: View {
                 Text("\(FormatHelper.formatCurrency(item.totalValue)) €")
                     .font(.system(.body, design: .monospaced).bold())
                     .foregroundColor(Theme.Colors.primaryText)
+                    .contentTransition(.numericText())
+                    .animation(.smooth, value: item.totalValue)
                 
                 if item.profitLoss != 0 {
                     HStack(spacing: 2) {
                         Image(systemName: item.profitLoss >= 0 ? "arrow.up" : "arrow.down")
                         Text("\(FormatHelper.formatCurrency(abs(item.profitLoss))) €")
                             .font(.system(.caption, design: .monospaced))
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: item.profitLoss)
                         Text("(\(FormatHelper.formatPercentage(item.profitLossPercentage)))")
                             .font(.system(.caption, design: .monospaced))
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: item.profitLossPercentage)
                     }
                     .foregroundColor(item.profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
                 }
@@ -302,10 +322,14 @@ struct ContentView: View {
                     Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
                         .font(.system(.body, design: .monospaced).bold())
                         .foregroundColor(Theme.Colors.primaryText)
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: transaction.quantity)
                     
                     Text("\(FormatHelper.formatCurrency(transaction.price_per_unit)) € per unit")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(Theme.Colors.secondaryText)
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: transaction.price_per_unit)
                 }
             }
             .padding(Theme.Layout.padding)
@@ -317,115 +341,32 @@ struct ContentView: View {
     
     private func loadData() async {
         // Cancel any existing refresh task
+        isLoading = true
+        isRefreshing = true
+        
+        // Cancel any existing refresh task
         refreshTask?.cancel()
         
-        // Create a new task for this refresh operation
         refreshTask = Task {
-            // Prevent concurrent requests
-            guard !isLoadingInProgress else { 
-                print("Data loading already in progress, skipping this request")
-                return 
-            }
-            
-            print("Starting data loading process")
-            
-            // Determine if this is a refresh or initial load
-            // Initial load happens when portfolioItems is empty
-            let isInitialLoad = portfolioItems.isEmpty
-            isLoading = isInitialLoad
-            isRefreshing = !isInitialLoad
-            isLoadingInProgress = true
-            
             do {
-                // Use try-catch for the initial setup, but we'll handle asset-specific errors separately
-                try await Task.sleep(nanoseconds: 200_000_000) // 0.2 second delay to prevent conflicts
+                // Load your data here
+                await loadAssetsIndependently()
                 
-                if Task.isCancelled { 
-                    print("Task cancelled after delay")
-                    return 
+                await MainActor.run {
+                    // Update the UI on the main thread
+                    withAnimation(.smooth) {
+                        isLoading = false
+                        isRefreshing = false
+                    }
                 }
-                
-                // Always fetch fresh data from Supabase API
-                print("Fetching fresh data from Supabase API...")
-                
-                // Load assets and transactions in parallel
-                async let assetsTask = supabaseManager.fetchAssets()
-                async let transactionsTask = supabaseManager.fetchTransactions()
-                async let ratesTask = supabaseManager.fetchInterestRateHistory()
-                
-                do {
-                    // Wait for all core data to be available
-                    let (assetsResponse, transactionsResponse, interestRateHistoryResponse) = try await (assetsTask, transactionsTask, ratesTask)
-                    
-                    if Task.isCancelled { return }
-                    
-                    // Create temporary copies of the data to work with
-                    // This allows us to preserve the UI until all new data is processed
-                    let oldPortfolioValue = portfolioValue
-                    let oldPortfolioItems = portfolioItems
-                    
-                    // Create a new temporary model context for the fresh data
-                    var newAssets: [Asset] = []
-                    var newTransactions: [Transaction] = []
-                    
-                    // Clear existing data now that we have fresh data
-                    print("Clearing existing data...")
-                    for asset in assets {
-                        modelContext.delete(asset)
-                    }
-                    for transaction in transactions {
-                        modelContext.delete(transaction)
-                    }
-                    
-                    // Store the basic data into the model context
-                    for assetResponse in assetsResponse {
-                        let asset = assetResponse.toAsset()
-                        modelContext.insert(asset)
-                        newAssets.append(asset)
-                    }
-                    
-                    for transactionResponse in transactionsResponse {
-                        let transaction = transactionResponse.toTransaction()
-                        modelContext.insert(transaction)
-                        newTransactions.append(transaction)
-                    }
-                    
-                    for rateResponse in interestRateHistoryResponse {
-                        let rate = rateResponse.toInterestRateHistory()
-                        modelContext.insert(rate)
-                    }
-                    
-                    // Load each asset independently to calculate portfolio data
-                    // The loadAssetsIndependently method will progressively update the UI
-                    // with the new values as they become available
-                    await loadAssetsIndependently(oldItems: oldPortfolioItems)
-                    
-                } catch let error as CancellationError {
-                    print("Initial data fetch was cancelled: \(error.localizedDescription)")
-                } catch {
-                    // Even if the main data load fails, we'll still try to use whatever assets we have in the database
-                    print("Error during initial data load: \(error.localizedDescription)")
-                    supabaseManager.setError(error)
-                    
-                    // Try to update with whatever data we have, preserving existing items
-                    await loadAssetsIndependently(oldItems: portfolioItems)
-                }
-            } catch let error as CancellationError {
-                print("Task was cancelled during initial setup: \(error.localizedDescription)")
             } catch {
-                print("Error in refresh task setup: \(error.localizedDescription)")
-                supabaseManager.setError(error)
+                print("Error loading data: \(error)")
+                await MainActor.run {
+                    isLoading = false
+                    isRefreshing = false
+                }
             }
-            
-            // Always reset loading state
-            isLoading = false
-            isRefreshing = false
-            isLoadingInProgress = false
-            print("Data loading process ended, loading state reset")
         }
-        
-        // Wait for the task to complete
-        await refreshTask?.value
     }
     
     // Add a helper method to convert Transaction to TransactionViewModel
@@ -503,32 +444,36 @@ struct ContentView: View {
                 }
                 
                 // If we got data for this asset, add it to our results and include transactions
-                if var asset = enrichedAsset {
-                    print("Successfully enriched asset: \(asset.name) with value: \(asset.totalValue)")
+                if let enrichedAsset = enrichedAsset {
+                    print("Successfully enriched asset: \(enrichedAsset.name) with value: \(enrichedAsset.totalValue)")
+                    
+                    // Create a mutable copy of the asset
+                    var mutableAsset = enrichedAsset
                     // Add the transaction view models to the asset
-                    asset.transactions = transactionViewModels
-                    asset.hasTransactions = !transactionViewModels.isEmpty
+                    mutableAsset.transactions = transactionViewModels
+                    mutableAsset.hasTransactions = !transactionViewModels.isEmpty
                     
-                    items.append(asset)
-                    totalPortfolioValue += asset.totalValue
+                    items.append(mutableAsset)
+                    totalPortfolioValue += mutableAsset.totalValue
                     
-                    // Update the UI with progressive results
+                    // Update the UI with this asset immediately to show progress
                     await MainActor.run {
-                        // Find existing item by ID
-                        if let index = portfolioItems.firstIndex(where: { $0.id == asset.id }) {
-                            // Replace it with the new enriched asset
-                            portfolioItems[index] = asset
-                        } else {
-                            // If it's a new asset, append it
-                            portfolioItems.append(asset)
+                        withAnimation(.smooth) {
+                            // Find existing item by ID
+                            if let index = portfolioItems.firstIndex(where: { $0.id == asset.id }) {
+                                // Update existing item
+                                portfolioItems[index] = mutableAsset
+                            } else {
+                                // Add new item
+                                portfolioItems.append(mutableAsset)
+                            }
+                            
+                            // Keep portfolio items sorted by value
+                            portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
+                            
+                            // Update portfolio total value
+                            portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
                         }
-                        
-                        // Sort the list by value
-                        portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-                        
-                        // Update the total portfolio value progressively
-                        // We calculate from the current items to ensure accuracy
-                        portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
                     }
                 } else {
                     print("⚠️ Failed to enrich asset: \(asset.name) (\(asset.symbol)) of type \(asset.type)")
@@ -541,10 +486,12 @@ struct ContentView: View {
                         
                         // Update UI with the preserved old asset
                         await MainActor.run {
-                            if !portfolioItems.contains(where: { $0.id == oldAsset.id }) {
-                                portfolioItems.append(oldAsset)
-                                portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-                                portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
+                            withAnimation(.smooth) {
+                                if !portfolioItems.contains(where: { $0.id == oldAsset.id }) {
+                                    portfolioItems.append(oldAsset)
+                                    portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
+                                    portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
+                                }
                             }
                         }
                     }
@@ -562,10 +509,12 @@ struct ContentView: View {
                     
                     // Update UI with the preserved old asset
                     await MainActor.run {
-                        if !portfolioItems.contains(where: { $0.id == oldAsset.id }) {
-                            portfolioItems.append(oldAsset)
-                            portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-                            portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
+                        withAnimation(.smooth) {
+                            if !portfolioItems.contains(where: { $0.id == oldAsset.id }) {
+                                portfolioItems.append(oldAsset)
+                                portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
+                                portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
+                            }
                         }
                     }
                 }
@@ -576,24 +525,26 @@ struct ContentView: View {
         
         // Final UI update with all results
         await MainActor.run {
-            // We now only remove items that no longer exist in the dataset
-            let loadedAssetIds = items.map { $0.id }
-            
-            // Only remove items that are no longer in the data
-            // This allows us to preserve previously loaded items that failed to load this time
-            let itemsToRemove = portfolioItems.filter { !loadedAssetIds.contains($0.id) }
-            for item in itemsToRemove {
-                if let index = portfolioItems.firstIndex(where: { $0.id == item.id }) {
-                    portfolioItems.remove(at: index)
+            withAnimation(.smooth) {
+                // We now only remove items that no longer exist in the dataset
+                let loadedAssetIds = items.map { $0.id }
+                
+                // Only remove items that are no longer in the data
+                // This allows us to preserve previously loaded items that failed to load this time
+                let itemsToRemove = portfolioItems.filter { !loadedAssetIds.contains($0.id) }
+                for item in itemsToRemove {
+                    if let index = portfolioItems.firstIndex(where: { $0.id == item.id }) {
+                        portfolioItems.remove(at: index)
+                    }
                 }
-            }
-            
-            // Ensure items are sorted by value
-            portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-            
-            // Only recalculate the final portfolio value if we have new items
-            if !items.isEmpty {
-                portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
+                
+                // Ensure items are sorted by value
+                portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
+                
+                // Only recalculate the final portfolio value if we have new items
+                if !items.isEmpty {
+                    portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
+                }
             }
         }
     }
@@ -666,14 +617,20 @@ struct AssetDetailView: View {
                         Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
                             .font(.system(size: 38, weight: .bold, design: .monospaced))
                             .foregroundColor(Theme.Colors.primaryText)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: asset.totalValue)
                         
                         if asset.profitLoss != 0 {
                             HStack(spacing: 4) {
                                 Image(systemName: asset.profitLoss >= 0 ? "arrow.up" : "arrow.down")
                                 Text("\(FormatHelper.formatCurrency(abs(asset.profitLoss))) €")
                                     .font(.system(.body, design: .monospaced))
+                                    .contentTransition(.numericText())
+                                    .animation(.smooth, value: asset.profitLoss)
                                 Text("(\(FormatHelper.formatPercentage(asset.profitLossPercentage)))")
                                     .font(.system(.body, design: .monospaced))
+                                    .contentTransition(.numericText())
+                                    .animation(.smooth, value: asset.profitLossPercentage)
                             }
                             .foregroundColor(asset.profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
                         }
@@ -731,6 +688,8 @@ struct AssetDetailView: View {
                                         Text("\(FormatHelper.formatCurrency(asset.currentPrice)) €")
                                             .font(.system(.body, design: .monospaced).bold())
                                             .foregroundColor(Theme.Colors.primaryText)
+                                            .contentTransition(.numericText())
+                                            .animation(.smooth, value: asset.currentPrice)
                                     }
                                     
                                     Spacer()
@@ -745,8 +704,19 @@ struct AssetDetailView: View {
                                                 Image(systemName: change24h >= 0 ? "arrow.up" : "arrow.down")
                                                 Text("\(FormatHelper.formatPercentage(abs(change24h)))")
                                                     .font(.system(.body, design: .monospaced))
+                                                    .contentTransition(.numericText())
+                                                    .animation(.smooth, value: change24h)
                                             }
                                             .foregroundColor(change24h >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                        }
+                                    } else {
+                                        VStack(alignment: .trailing) {
+                                            Text("24h Change")
+                                                .font(Theme.Typography.caption)
+                                                .foregroundColor(Theme.Colors.secondaryText)
+                                            Text("No data")
+                                                .font(.system(.body, design: .monospaced))
+                                                .foregroundColor(Theme.Colors.secondaryText)
                                         }
                                     }
                                 }
@@ -772,9 +742,11 @@ struct AssetDetailView: View {
                                     Text("Quantity")
                                         .font(Theme.Typography.caption)
                                         .foregroundColor(Theme.Colors.secondaryText)
-                                    Text("\(FormatHelper.formatQuantity(asset.totalQuantity))")
+                                    Text(FormatHelper.formatQuantity(asset.totalQuantity))
                                         .font(.system(.body, design: .monospaced).bold())
                                         .foregroundColor(Theme.Colors.primaryText)
+                                        .contentTransition(.numericText())
+                                        .animation(.smooth, value: asset.totalQuantity)
                                 }
                                 
                                 Spacer()
@@ -787,6 +759,8 @@ struct AssetDetailView: View {
                                     Text("\(FormatHelper.formatCurrency(asset.averagePrice)) €")
                                         .font(.system(.body, design: .monospaced).bold())
                                         .foregroundColor(Theme.Colors.primaryText)
+                                        .contentTransition(.numericText())
+                                        .animation(.smooth, value: asset.averagePrice)
                                 }
                             }
                         }
@@ -838,10 +812,14 @@ struct AssetDetailView: View {
                                                 Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
                                                     .font(.system(.body, design: .monospaced).bold())
                                                     .foregroundColor(Theme.Colors.primaryText)
+                                                    .contentTransition(.numericText())
+                                                    .animation(.smooth, value: transaction.quantity)
                                                 
                                                 Text("\(FormatHelper.formatCurrency(transaction.price)) € per unit")
                                                     .font(.system(.caption, design: .monospaced))
                                                     .foregroundColor(Theme.Colors.secondaryText)
+                                                    .contentTransition(.numericText())
+                                                    .animation(.smooth, value: transaction.price)
                                             }
                                         }
                                         .padding(.vertical, 12)
@@ -1197,19 +1175,9 @@ struct AddAssetView: View {
             } catch {
                 print("Error searching Yahoo Finance: \(error.localizedDescription)")
                 
-                // Fallback to mock data in case of API errors
+                // No fallback data, just show empty results
                 await MainActor.run {
-                    // Create some mock results based on the query
-                    if query.lowercased().contains("app") {
-                        searchResults.append(AssetSearchResult(id: "1", symbol: "AAPL", name: "Apple Inc.", exchange: "NASDAQ", isin: "US0378331005"))
-                    } else if query.lowercased().contains("goog") {
-                        searchResults.append(AssetSearchResult(id: "2", symbol: "GOOGL", name: "Alphabet Inc.", exchange: "NASDAQ", isin: "US02079K3059"))
-                    } else if query.lowercased().contains("micro") {
-                        searchResults.append(AssetSearchResult(id: "3", symbol: "MSFT", name: "Microsoft Corporation", exchange: "NASDAQ", isin: "US5949181045"))
-                    } else if query.lowercased().contains("btc") || query.lowercased().contains("bit") {
-                        searchResults.append(AssetSearchResult(id: "4", symbol: "BTC-USD", name: "Bitcoin", exchange: "CryptoCompare", isin: nil))
-                    }
-                    
+                    searchResults = []
                     isSearching = false
                 }
             }
@@ -1388,6 +1356,8 @@ struct AddTransactionView: View {
                                         Text("\(FormatHelper.formatCurrency(calculatedTotalAmount)) €")
                                             .font(.system(.title3, design: .monospaced).bold())
                                             .foregroundColor(Theme.Colors.primaryText)
+                                            .contentTransition(.numericText())
+                                            .animation(.smooth, value: calculatedTotalAmount)
                                     }
                                     .padding()
                                     .background(Theme.Colors.secondaryBackground)
