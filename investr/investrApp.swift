@@ -207,16 +207,13 @@ class SupabaseManager: ObservableObject {
     
     func addTransaction(assetId: String, type: TransactionType, quantity: Double, 
                          pricePerUnit: Double, totalAmount: Double, date: Date) async throws -> String {
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
         let transactionData = TransactionInsert(
             asset_id: assetId,
             type: type.rawValue,
             quantity: quantity,
             price_per_unit: pricePerUnit,
             total_amount: totalAmount,
-            transaction_date: dateFormatter.string(from: date)
+            transaction_date: date.toISO8601String()
         )
         
         let response = try await client
@@ -305,14 +302,11 @@ class SupabaseManager: ObservableObject {
     }
     
     func addInterestRate(assetId: String, rate: Double, startDate: Date, endDate: Date? = nil) async throws -> String {
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
         let interestRateData = InterestRateInsert(
             asset_id: assetId,
             rate: rate,
-            start_date: dateFormatter.string(from: startDate),
-            end_date: endDate != nil ? dateFormatter.string(from: endDate!) : nil
+            start_date: startDate.toISO8601String(),
+            end_date: endDate != nil ? endDate!.toISO8601String() : nil
         )
         
         let response = try await client
@@ -343,6 +337,58 @@ class SupabaseManager: ObservableObject {
     }
 }
 
+// MARK: - Date Utilities
+extension Date {
+    static func parseFromString(_ dateString: String) -> Date {
+        // Try several date formats to ensure we parse correctly
+        var parsedDate: Date?
+        
+        // 1. Try ISO8601 with fractional seconds
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        parsedDate = isoFormatter.date(from: dateString)
+        
+        // 2. Try ISO8601 without fractional seconds
+        if parsedDate == nil {
+            let simpleIsoFormatter = ISO8601DateFormatter()
+            simpleIsoFormatter.formatOptions = [.withInternetDateTime]
+            parsedDate = simpleIsoFormatter.date(from: dateString)
+        }
+        
+        // 3. Try using DateFormatter for more flexibility
+        if parsedDate == nil {
+            let dateFormatter = DateFormatter()
+            dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+            
+            // Try different formats
+            let formats = [
+                "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+                "yyyy-MM-dd'T'HH:mm:ssZ",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd"
+            ]
+            
+            for format in formats {
+                dateFormatter.dateFormat = format
+                if let date = dateFormatter.date(from: dateString) {
+                    parsedDate = date
+                    break
+                }
+            }
+        }
+        
+        // If we successfully parsed the date, use it, otherwise use current date
+        return parsedDate ?? Date()
+    }
+    
+    // Convert a date to ISO8601 string with fractional seconds
+    func toISO8601String() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: self)
+    }
+}
+
 // MARK: - Supabase Response Models
 struct AssetResponse: Codable {
     let id: String
@@ -354,17 +400,14 @@ struct AssetResponse: Codable {
     let updated_at: String
     
     func toAsset() -> Asset {
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
         return Asset(
             id: id,
             symbol: symbol,
             name: name,
             isin: isin,
             type: AssetType(rawValue: type) ?? .etf,
-            created_at: dateFormatter.date(from: created_at) ?? Date(),
-            updated_at: dateFormatter.date(from: updated_at) ?? Date()
+            created_at: Date.parseFromString(created_at),
+            updated_at: Date.parseFromString(updated_at)
         )
     }
 }
@@ -381,9 +424,6 @@ struct TransactionResponse: Codable {
     let updated_at: String
     
     func toTransaction() -> Transaction {
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
         return Transaction(
             id: id,
             asset_id: asset_id,
@@ -391,9 +431,9 @@ struct TransactionResponse: Codable {
             quantity: quantity,
             price_per_unit: price_per_unit,
             total_amount: total_amount,
-            transaction_date: dateFormatter.date(from: transaction_date) ?? Date(),
-            created_at: dateFormatter.date(from: created_at) ?? Date(),
-            updated_at: dateFormatter.date(from: updated_at) ?? Date()
+            transaction_date: Date.parseFromString(transaction_date),
+            created_at: Date.parseFromString(created_at),
+            updated_at: Date.parseFromString(updated_at)
         )
     }
 }
@@ -408,17 +448,14 @@ struct InterestRateHistoryResponse: Codable {
     let updated_at: String
     
     func toInterestRateHistory() -> InterestRateHistory {
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
         return InterestRateHistory(
             id: id,
             asset_id: asset_id,
             rate: rate,
-            start_date: dateFormatter.date(from: start_date) ?? Date(),
-            end_date: end_date != nil ? dateFormatter.date(from: end_date!) : nil,
-            created_at: dateFormatter.date(from: created_at) ?? Date(),
-            updated_at: dateFormatter.date(from: updated_at) ?? Date()
+            start_date: Date.parseFromString(start_date),
+            end_date: end_date != nil ? Date.parseFromString(end_date!) : nil,
+            created_at: Date.parseFromString(created_at),
+            updated_at: Date.parseFromString(updated_at)
         )
     }
 }

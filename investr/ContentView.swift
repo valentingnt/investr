@@ -349,7 +349,77 @@ struct ContentView: View {
         
         refreshTask = Task {
             do {
-                // Load your data here
+                // Fetch assets and transactions from Supabase API
+                print("Starting to fetch data from API...")
+                
+                // Fetch and save assets
+                print("Fetching assets from API...")
+                let assetResponses = try await supabaseManager.fetchAssets()
+                print("Successfully fetched \(assetResponses.count) assets from API")
+                
+                // Fetch and save transactions
+                print("Fetching transactions from API...")
+                let transactionResponses = try await supabaseManager.fetchTransactions()
+                print("Successfully fetched \(transactionResponses.count) transactions from API")
+                
+                // Update local SwiftData models
+                await MainActor.run {
+                    print("Updating local SwiftData models...")
+                    
+                    // Update assets
+                    for assetResponse in assetResponses {
+                        // Check if asset already exists in SwiftData
+                        if let existingAsset = assets.first(where: { $0.id == assetResponse.id }) {
+                            // Update existing asset
+                            existingAsset.symbol = assetResponse.symbol
+                            existingAsset.name = assetResponse.name
+                            existingAsset.isin = assetResponse.isin
+                            existingAsset.type = AssetType(rawValue: assetResponse.type) ?? .etf
+                            existingAsset.updated_at = Date()
+                            print("Updated existing asset: \(existingAsset.name)")
+                        } else {
+                            // Create new asset
+                            let newAsset = assetResponse.toAsset()
+                            modelContext.insert(newAsset)
+                            print("Inserted new asset: \(newAsset.name)")
+                        }
+                    }
+                    
+                    // Update transactions
+                    for transactionResponse in transactionResponses {
+                        // Check if transaction already exists in SwiftData
+                        if let existingTransaction = transactions.first(where: { $0.id == transactionResponse.id }) {
+                            // Delete the existing transaction to avoid conflicts
+                            // This is a simple approach to ensure we always have the latest data
+                            modelContext.delete(existingTransaction)
+                            print("Deleted existing transaction: \(existingTransaction.id)")
+                        }
+                        
+                        // Create new transaction with proper dates
+                        let newTransaction = transactionResponse.toTransaction()
+                        
+                        // Set asset relationship
+                        if let asset = assets.first(where: { $0.id == newTransaction.asset_id }) {
+                            newTransaction.asset = asset
+                            print("Set asset relationship for transaction: \(newTransaction.id) to asset: \(asset.name)")
+                        } else {
+                            print("Warning: Couldn't find asset with ID \(newTransaction.asset_id) for transaction")
+                        }
+                        
+                        modelContext.insert(newTransaction)
+                        print("Inserted transaction: \(newTransaction.id)")
+                    }
+                    
+                    // Save changes
+                    do {
+                        try modelContext.save()
+                        print("Successfully saved all changes to SwiftData")
+                    } catch {
+                        print("Error saving changes to SwiftData: \(error)")
+                    }
+                }
+                
+                // Load assets with updated data
                 await loadAssetsIndependently()
                 
                 await MainActor.run {
