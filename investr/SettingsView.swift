@@ -64,5 +64,4 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
-        .preferredColorScheme(.dark)
 } 

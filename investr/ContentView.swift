@@ -24,7 +24,7 @@ struct ContentView: View {
     @State private var showingAddTransaction = false
     @State private var isLoadingInProgress = false
     @State private var refreshTask: Task<Void, Never>?
-    @State private var namespace = Namespace().wrappedValue
+    @Namespace private var namespace
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -98,7 +98,6 @@ struct ContentView: View {
                 .tag(2)
         }
         .accentColor(Theme.Colors.accent)
-        .preferredColorScheme(.dark)
         .task {
             // Initial data load when the view appears
             await loadData()
