@@ -172,7 +172,14 @@ final class AssetServiceManager {
         updateCallbacksLock.unlock()
         
         for callback in callbacks {
-            callback(viewModel)
+            // Ensure the callback is always executed on the main thread
+            if Thread.isMainThread {
+                callback(viewModel)
+            } else {
+                DispatchQueue.main.async {
+                    callback(viewModel)
+                }
+            }
         }
     }
     

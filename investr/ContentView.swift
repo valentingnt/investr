@@ -112,7 +112,11 @@ struct ContentView: View {
         .onChange(of: supabaseManager.hasError) { _, hasError in
             if hasError {
                 print("Displaying error: \(supabaseManager.errorMessage)")
-                // You could show an alert here if needed
+                // Only handle global errors here, not transaction-specific errors
+                // which should be handled in their respective views
+                
+                // Optionally, you could show a toast or alert here for system-wide errors
+                // but avoid showing errors that might be handled by child views
             }
         }
         // Listen for changes to transactions in the model context
@@ -560,51 +564,49 @@ struct ContentView: View {
                 supabaseManager: supabaseManager,
                 onUpdate: { enrichedAsset in
                     // This callback runs on the main thread when the enriched data is available
-                    DispatchQueue.main.async {
-                        // Get fresh transactions - important to use the latest transaction data
-                        let freshAssetTransactions = self.transactions.filter { $0.asset_id == asset.id }
-                        
-                        // Convert the transactions to view models for display
-                        let transactionViewModels = freshAssetTransactions.map { 
-                            self.convertToTransactionViewModel(transaction: $0) 
+                    // Get fresh transactions - important to use the latest transaction data
+                    let freshAssetTransactions = self.transactions.filter { $0.asset_id == asset.id }
+                    
+                    // Convert the transactions to view models for display
+                    let transactionViewModels = freshAssetTransactions.map { 
+                        self.convertToTransactionViewModel(transaction: $0) 
+                    }
+                    
+                    // Create a mutable copy with transactions
+                    var mutableAsset = enrichedAsset
+                    mutableAsset.transactions = transactionViewModels
+                    mutableAsset.hasTransactions = !transactionViewModels.isEmpty
+                    
+                    // Always recalculate values with fresh transaction data
+                    // Calculate basic metrics with fresh transaction data
+                    let service = BaseAssetService()
+                    let totalQuantity = service.calculateTotalQuantity(transactions: freshAssetTransactions)
+                    let totalCost = service.calculateTotalCost(transactions: freshAssetTransactions)
+                    
+                    // Keep price from API but update quantity and calculations
+                    let price = mutableAsset.currentPrice
+                    mutableAsset.totalQuantity = totalQuantity
+                    mutableAsset.totalValue = totalQuantity * price
+                    mutableAsset.averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0
+                    mutableAsset.profitLoss = (totalQuantity * price) - totalCost
+                    mutableAsset.profitLossPercentage = totalCost > 0 ? ((totalQuantity * price - totalCost) / totalCost) * 100 : 0
+                    
+                    // Update UI with enriched data
+                    withAnimation(.smooth) {
+                        // Find existing item by ID
+                        if let index = self.portfolioItems.firstIndex(where: { $0.id == asset.id }) {
+                            // Update existing item
+                            self.portfolioItems[index] = mutableAsset
+                        } else {
+                            // Add new item if not found
+                            self.portfolioItems.append(mutableAsset)
                         }
                         
-                        // Create a mutable copy with transactions
-                        var mutableAsset = enrichedAsset
-                        mutableAsset.transactions = transactionViewModels
-                        mutableAsset.hasTransactions = !transactionViewModels.isEmpty
+                        // Keep portfolio items sorted by value
+                        self.portfolioItems.sort { $0.totalValue > $1.totalValue }
                         
-                        // Always recalculate values with fresh transaction data
-                        // Calculate basic metrics with fresh transaction data
-                        let service = BaseAssetService()
-                        let totalQuantity = service.calculateTotalQuantity(transactions: freshAssetTransactions)
-                        let totalCost = service.calculateTotalCost(transactions: freshAssetTransactions)
-                        
-                        // Keep price from API but update quantity and calculations
-                        let price = mutableAsset.currentPrice
-                        mutableAsset.totalQuantity = totalQuantity
-                        mutableAsset.totalValue = totalQuantity * price
-                        mutableAsset.averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0
-                        mutableAsset.profitLoss = (totalQuantity * price) - totalCost
-                        mutableAsset.profitLossPercentage = totalCost > 0 ? ((totalQuantity * price - totalCost) / totalCost) * 100 : 0
-                        
-                        // Update UI with enriched data
-                        withAnimation(.smooth) {
-                            // Find existing item by ID
-                            if let index = self.portfolioItems.firstIndex(where: { $0.id == asset.id }) {
-                                // Update existing item
-                                self.portfolioItems[index] = mutableAsset
-                            } else {
-                                // Add new item if not found
-                                self.portfolioItems.append(mutableAsset)
-                            }
-                            
-                            // Keep portfolio items sorted by value
-                            self.portfolioItems.sort { $0.totalValue > $1.totalValue }
-                            
-                            // Recalculate total portfolio value
-                            self.portfolioValue = self.portfolioItems.reduce(0) { $0 + $1.totalValue }
-                        }
+                        // Recalculate total portfolio value
+                        self.portfolioValue = self.portfolioItems.reduce(0) { $0 + $1.totalValue }
                     }
                 }
             )
@@ -1759,6 +1761,9 @@ struct AddTransactionView: View {
         isAddingTransaction = true
         errorMessage = nil
         
+        // Make sure any previous errors in SupabaseManager are cleared
+        supabaseManager.clearError()
+        
         // Calculate the total amount
         let totalAmount = quantityValue * priceValue
         
@@ -1773,6 +1778,15 @@ struct AddTransactionView: View {
                     totalAmount: totalAmount,
                     date: transactionDate
                 )
+                
+                // Check if there was an error set in the SupabaseManager during the operation
+                if supabaseManager.hasError {
+                    await MainActor.run {
+                        errorMessage = supabaseManager.errorMessage
+                        isAddingTransaction = false
+                    }
+                    return
+                }
                 
                 if !transactionId.isEmpty {
                     // Check if the transaction exists in our local database already
@@ -1811,18 +1825,24 @@ struct AddTransactionView: View {
                     
                     // Transaction was added successfully - call completion and dismiss
                     await MainActor.run {
+                        // Make sure the error state is clear
+                        supabaseManager.clearError()
                         onComplete()
                         dismiss()
                     }
                 } else {
                     // Failed to add transaction
-                    errorMessage = "Failed to add transaction. Please try again."
-                    isAddingTransaction = false
+                    await MainActor.run {
+                        errorMessage = "Failed to add transaction. Please try again."
+                        isAddingTransaction = false
+                    }
                 }
             } catch {
                 // Handle any errors
-                errorMessage = "Error: \(error.localizedDescription)"
-                isAddingTransaction = false
+                await MainActor.run {
+                    errorMessage = "Error: \(error.localizedDescription)"
+                    isAddingTransaction = false
+                }
             }
         }
     }

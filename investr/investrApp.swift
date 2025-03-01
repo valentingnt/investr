@@ -207,6 +207,9 @@ class SupabaseManager: ObservableObject {
     
     func addTransaction(assetId: String, type: TransactionType, quantity: Double, 
                          pricePerUnit: Double, totalAmount: Double, date: Date) async throws -> String {
+        // Clear any previous errors
+        clearError()
+        
         let transactionData = TransactionInsert(
             asset_id: assetId,
             type: type.rawValue,
@@ -216,30 +219,74 @@ class SupabaseManager: ObservableObject {
             transaction_date: date.toISO8601String()
         )
         
+        print("Sending transaction to Supabase: \(transactionData)")
+        
         let response = try await client
             .from("transactions")
             .insert(transactionData)
             .execute()
         
+        print("Received response with status: \(response.status)")
+        
         if response.status >= 200 && response.status < 300 {
             // Try to extract the ID of the newly created transaction
-            do {
-                let transactions = try JSONDecoder().decode([TransactionResponse].self, from: response.data)
-                if let newTransaction = transactions.first {
-                    return newTransaction.id
+            if !response.data.isEmpty {
+                do {
+                    print("Response data: \(String(data: response.data, encoding: .utf8) ?? "Unable to convert to string")")
+                    let transactions = try JSONDecoder().decode([TransactionResponse].self, from: response.data)
+                    if let newTransaction = transactions.first {
+                        print("Successfully decoded transaction with ID: \(newTransaction.id)")
+                        return newTransaction.id
+                    } else {
+                        print("No transaction was returned in the response")
+                    }
+                } catch {
+                    print("Error decoding transaction response: \(error)")
+                    // Important: Don't set the error here as the transaction was successful
+                    // We just couldn't decode the ID, but it doesn't mean the transaction failed
                 }
-            } catch {
-                print("Error decoding transaction response: \(error)")
+            } else {
+                print("Response data is empty, but status code indicates success")
+                
+                // Since we can't get the transaction ID, we'll need to query for it
+                do {
+                    // Small delay to allow the database to process the insertion
+                    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
+                    
+                    // Query for the most recent transaction with matching details
+                    let fetchResponse = try await client
+                        .from("transactions")
+                        .select()
+                        .eq("asset_id", value: assetId)
+                        .eq("quantity", value: quantity)
+                        .eq("price_per_unit", value: pricePerUnit)
+                        .order("created_at", ascending: false)
+                        .limit(1)
+                        .execute()
+                    
+                    if let transactionData = try? JSONDecoder().decode([TransactionResponse].self, from: fetchResponse.data),
+                       let transaction = transactionData.first {
+                        print("Found matching transaction with ID: \(transaction.id)")
+                        return transaction.id
+                    }
+                } catch {
+                    print("Error fetching newly created transaction: \(error)")
+                }
             }
             
-            // If we couldn't get the ID, return success but empty string
-            return ""
+            // If we still couldn't get the ID, generate a temporary one
+            // This is a fallback to allow the UI to proceed normally
+            let tempId = UUID().uuidString
+            print("Using generated UUID as transaction ID: \(tempId)")
+            return tempId
         } else {
-            throw NSError(
+            let error = NSError(
                 domain: "SupabaseManager",
                 code: response.status,
                 userInfo: [NSLocalizedDescriptionKey: "Failed to add transaction: Status \(response.status)"]
             )
+            setError(error)
+            throw error
         }
     }
     
