@@ -76,7 +76,14 @@ struct ContentView: View {
                     }
                     .sheet(isPresented: $showingAddTransaction) {
                         AddTransactionView(assets: portfolioItems) {
+                            // Perform a complete refresh when a transaction is added
                             Task {
+                                print("Transaction added - performing full data refresh")
+                                
+                                // Clear portfolio items to force a complete rebuild
+                                portfolioItems = []
+                                
+                                // Load fresh data from the API
                                 await loadData()
                             }
                         }
@@ -106,6 +113,16 @@ struct ContentView: View {
             if hasError {
                 print("Displaying error: \(supabaseManager.errorMessage)")
                 // You could show an alert here if needed
+            }
+        }
+        // Listen for changes to transactions in the model context
+        .onChange(of: transactions.count) { oldCount, newCount in
+            if oldCount != newCount {
+                print("Transaction count changed in ContentView: \(oldCount) to \(newCount)")
+                Task {
+                    // Reload assets with updated data
+                    await loadAssetsIndependently()
+                }
             }
         }
     }
@@ -172,8 +189,7 @@ struct ContentView: View {
                                 ($0.type != .savings && $0.totalQuantity > 0) 
                             }) { item in
                                 NavigationLink(destination: AssetDetailView(asset: item)
-                                    .navigationTitle(item.name)
-                                    .navigationBarTitleDisplayMode(.large)
+                                    .environmentObject(supabaseManager)
                                     .navigationTransition(.zoom(sourceID: "asset_\(item.id)", in: namespace))
                                 ) {
                                     assetRow(item: item)
@@ -200,8 +216,7 @@ struct ContentView: View {
                                 
                                 ForEach(archivedAssets) { item in
                                     NavigationLink(destination: AssetDetailView(asset: item)
-                                        .navigationTitle(item.name)
-                                        .navigationBarTitleDisplayMode(.large)
+                                        .environmentObject(supabaseManager)
                                         .navigationTransition(.zoom(sourceID: "asset_\(item.id)", in: namespace))
                                     ) {
                                         assetRow(item: item)
@@ -340,6 +355,7 @@ struct ContentView: View {
     
     private func loadData() async {
         // Cancel any existing refresh task
+        print("Starting complete data refresh including API calls")
         isLoading = true
         isRefreshing = true
         
@@ -351,12 +367,12 @@ struct ContentView: View {
                 // Fetch assets and transactions from Supabase API
                 print("Starting to fetch data from API...")
                 
-                // Fetch and save assets
+                // Fetch and save assets - requesting fresh data from server
                 print("Fetching assets from API...")
                 let assetResponses = try await supabaseManager.fetchAssets()
                 print("Successfully fetched \(assetResponses.count) assets from API")
                 
-                // Fetch and save transactions
+                // Fetch and save transactions - requesting fresh data from server
                 print("Fetching transactions from API...")
                 let transactionResponses = try await supabaseManager.fetchTransactions()
                 print("Successfully fetched \(transactionResponses.count) transactions from API")
@@ -364,6 +380,17 @@ struct ContentView: View {
                 // Update local SwiftData models
                 await MainActor.run {
                     print("Updating local SwiftData models...")
+                    
+                    // Create set of asset IDs from the response
+                    let apiAssetIds = Set(assetResponses.map { $0.id })
+                    
+                    // Remove assets that no longer exist in Supabase
+                    for asset in assets {
+                        if !apiAssetIds.contains(asset.id) {
+                            print("Deleting asset that no longer exists on server: \(asset.name) (\(asset.id))")
+                            modelContext.delete(asset)
+                        }
+                    }
                     
                     // Update assets
                     for assetResponse in assetResponses {
@@ -381,6 +408,17 @@ struct ContentView: View {
                             let newAsset = assetResponse.toAsset()
                             modelContext.insert(newAsset)
                             print("Inserted new asset: \(newAsset.name)")
+                        }
+                    }
+                    
+                    // Create set of transaction IDs from the response
+                    let apiTransactionIds = Set(transactionResponses.map { $0.id })
+                    
+                    // Remove transactions that no longer exist in Supabase
+                    for transaction in transactions {
+                        if !apiTransactionIds.contains(transaction.id) {
+                            print("Deleting transaction that no longer exists on server: \(transaction.id)")
+                            modelContext.delete(transaction)
                         }
                     }
                     
@@ -418,6 +456,11 @@ struct ContentView: View {
                     }
                 }
                 
+                // Reset portfolioItems to force a complete rebuild with fresh data
+                await MainActor.run {
+                    portfolioItems = []
+                }
+                
                 // Load assets with updated data
                 await loadAssetsIndependently()
                 
@@ -429,7 +472,7 @@ struct ContentView: View {
                     }
                 }
             } catch {
-                print("Error loading data: \(error)")
+                print("Error loading data: \(error.localizedDescription)")
                 await MainActor.run {
                     isLoading = false
                     isRefreshing = false
@@ -452,168 +495,126 @@ struct ContentView: View {
         )
     }
     
-    // Update the loadAssetsIndependently method to include transactions in the view model
+    // Update the loadAssetsIndependently method to handle refreshes better
     private func loadAssetsIndependently(oldItems: [AssetViewModel] = []) async {
         // Create new list for portfolio items
-        var items: [AssetViewModel] = []
         var totalPortfolioValue: Double = 0
         
         print("Starting to load \(assets.count) assets independently")
         
-        // Process each asset independently
-        for (index, asset) in assets.enumerated() {
+        // First, immediately create a basic view model for each asset without waiting for API data
+        await MainActor.run {
+            // Clear existing items if they're passed as empty
+            if portfolioItems.isEmpty {
+                print("Building fresh portfolio items list from scratch")
+                for asset in assets {
+                    // Get transactions for this specific asset
+                    let assetTransactions = transactions.filter { $0.asset_id == asset.id }
+                    
+                    // Convert the transactions to view models for display
+                    let transactionViewModels = assetTransactions.map { convertToTransactionViewModel(transaction: $0) }
+                    
+                    // Get a basic view model with minimal data
+                    var baseViewModel = AssetServiceManager.shared.createBasicViewModel(asset: asset)
+                    
+                    // Calculate basic metrics that don't need API calls
+                    let service = BaseAssetService()
+                    let totalQuantity = service.calculateTotalQuantity(transactions: assetTransactions)
+                    let totalCost = service.calculateTotalCost(transactions: assetTransactions)
+                    
+                    // Update the base view model with local calculations
+                    baseViewModel.totalQuantity = totalQuantity
+                    baseViewModel.averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0
+                    baseViewModel.transactions = transactionViewModels
+                    baseViewModel.hasTransactions = !transactionViewModels.isEmpty
+                    
+                    // Add to portfolio items immediately
+                    portfolioItems.append(baseViewModel)
+                }
+            } else {
+                print("Updating existing portfolio items")
+            }
+        }
+        
+        // Then, start background enrichment for each asset
+        for asset in assets {
             // Skip if the task was cancelled
             if Task.isCancelled { 
                 print("Task was cancelled, stopping asset loading")
                 break 
             }
             
-            print("Processing asset \(index + 1)/\(assets.count): \(asset.name) (\(asset.symbol)) of type \(asset.type)")
-            
             // Get transactions for this specific asset
             let assetTransactions = transactions.filter { $0.asset_id == asset.id }
-            print("Found \(assetTransactions.count) transactions for \(asset.name)")
+            print("Enriching asset: \(asset.name) (\(asset.symbol)) of type \(asset.type)")
             
-            // Convert the transactions to view models for display
-            let transactionViewModels = assetTransactions.map { convertToTransactionViewModel(transaction: $0) }
+            // Get interest rate history for savings accounts
+            let interestRates = asset.type == .savings ? asset.interestRateHistory : []
             
-            // Use a dedicated task for each asset to isolate any failures
-            do {
-                // Create a new task for each asset to isolate failures
-                let enrichedAsset = try await withTimeout(seconds: 15) {
-                    // Process each asset type independently
-                    switch asset.type {
-                    case .etf:
-                        print("Enriching ETF asset: \(asset.name)")
-                        let service = ETFService()
-                        return await service.enrichAssetWithPriceAndTransactions(
-                            asset: asset, 
-                            transactions: assetTransactions
-                        )
+            // Start background enrichment and register for updates
+            _ = AssetServiceManager.shared.getAssetViewModel(
+                asset: asset,
+                transactions: assetTransactions,
+                forceRefresh: true, // Always force refresh API data to ensure we have current prices
+                interestRateHistory: interestRates,
+                supabaseManager: supabaseManager,
+                onUpdate: { enrichedAsset in
+                    // This callback runs on the main thread when the enriched data is available
+                    DispatchQueue.main.async {
+                        // Get fresh transactions - important to use the latest transaction data
+                        let freshAssetTransactions = self.transactions.filter { $0.asset_id == asset.id }
                         
-                    case .crypto:
-                        print("Enriching Crypto asset: \(asset.name)")
-                        let service = CryptoService()
-                        return await service.enrichAssetWithPriceAndTransactions(
-                            asset: asset, 
-                            transactions: assetTransactions
-                        )
+                        // Convert the transactions to view models for display
+                        let transactionViewModels = freshAssetTransactions.map { 
+                            self.convertToTransactionViewModel(transaction: $0) 
+                        }
                         
-                    case .savings:
-                        print("Enriching Savings asset: \(asset.name)")
-                        let service = SavingsService()
-                        let interestRates = assets.first(where: { $0.id == asset.id })?.interestRateHistory ?? []
-                        return await service.enrichAssetWithPriceAndTransactions(
-                            asset: asset, 
-                            transactions: assetTransactions,
-                            interestRateHistory: interestRates,
-                            supabaseManager: supabaseManager
-                        )
-                    }
-                }
-                
-                // If we got data for this asset, add it to our results and include transactions
-                if let enrichedAsset = enrichedAsset {
-                    print("Successfully enriched asset: \(enrichedAsset.name) with value: \(enrichedAsset.totalValue)")
-                    
-                    // Create a mutable copy of the asset
-                    var mutableAsset = enrichedAsset
-                    // Add the transaction view models to the asset
-                    mutableAsset.transactions = transactionViewModels
-                    mutableAsset.hasTransactions = !transactionViewModels.isEmpty
-                    
-                    items.append(mutableAsset)
-                    totalPortfolioValue += mutableAsset.totalValue
-                    
-                    // Update the UI with this asset immediately to show progress
-                    await MainActor.run {
+                        // Create a mutable copy with transactions
+                        var mutableAsset = enrichedAsset
+                        mutableAsset.transactions = transactionViewModels
+                        mutableAsset.hasTransactions = !transactionViewModels.isEmpty
+                        
+                        // Always recalculate values with fresh transaction data
+                        // Calculate basic metrics with fresh transaction data
+                        let service = BaseAssetService()
+                        let totalQuantity = service.calculateTotalQuantity(transactions: freshAssetTransactions)
+                        let totalCost = service.calculateTotalCost(transactions: freshAssetTransactions)
+                        
+                        // Keep price from API but update quantity and calculations
+                        let price = mutableAsset.currentPrice
+                        mutableAsset.totalQuantity = totalQuantity
+                        mutableAsset.totalValue = totalQuantity * price
+                        mutableAsset.averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0
+                        mutableAsset.profitLoss = (totalQuantity * price) - totalCost
+                        mutableAsset.profitLossPercentage = totalCost > 0 ? ((totalQuantity * price - totalCost) / totalCost) * 100 : 0
+                        
+                        // Update UI with enriched data
                         withAnimation(.smooth) {
                             // Find existing item by ID
-                            if let index = portfolioItems.firstIndex(where: { $0.id == asset.id }) {
+                            if let index = self.portfolioItems.firstIndex(where: { $0.id == asset.id }) {
                                 // Update existing item
-                                portfolioItems[index] = mutableAsset
+                                self.portfolioItems[index] = mutableAsset
                             } else {
-                                // Add new item
-                                portfolioItems.append(mutableAsset)
+                                // Add new item if not found
+                                self.portfolioItems.append(mutableAsset)
                             }
                             
                             // Keep portfolio items sorted by value
-                            portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
+                            self.portfolioItems.sort { $0.totalValue > $1.totalValue }
                             
-                            // Update portfolio total value
-                            portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
-                        }
-                    }
-                } else {
-                    print("⚠️ Failed to enrich asset: \(asset.name) (\(asset.symbol)) of type \(asset.type)")
-                    
-                    // Try to find this asset in old items to preserve it if possible
-                    if let oldAsset = oldItems.first(where: { $0.id == asset.id }) {
-                        print("Preserving previous data for \(asset.name)")
-                        items.append(oldAsset)
-                        totalPortfolioValue += oldAsset.totalValue
-                        
-                        // Update UI with the preserved old asset
-                        await MainActor.run {
-                            withAnimation(.smooth) {
-                                if !portfolioItems.contains(where: { $0.id == oldAsset.id }) {
-                                    portfolioItems.append(oldAsset)
-                                    portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-                                    portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
-                                }
-                            }
+                            // Recalculate total portfolio value
+                            self.portfolioValue = self.portfolioItems.reduce(0) { $0 + $1.totalValue }
                         }
                     }
                 }
-                
-            } catch {
-                // Log the error but continue processing other assets
-                print("⚠️ Error loading asset \(asset.name): \(error.localizedDescription)")
-                
-                // Try to find this asset in old items to preserve it if possible
-                if let oldAsset = oldItems.first(where: { $0.id == asset.id }) {
-                    print("Error occurred but preserving previous data for \(asset.name)")
-                    items.append(oldAsset)
-                    totalPortfolioValue += oldAsset.totalValue
-                    
-                    // Update UI with the preserved old asset
-                    await MainActor.run {
-                        withAnimation(.smooth) {
-                            if !portfolioItems.contains(where: { $0.id == oldAsset.id }) {
-                                portfolioItems.append(oldAsset)
-                                portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-                                portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
-                            }
-                        }
-                    }
-                }
-            }
+            )
         }
         
-        print("Finished loading \(items.count) of \(assets.count) assets. Portfolio value: \(totalPortfolioValue)")
-        
-        // Final UI update with all results
+        // Update the UI state
         await MainActor.run {
             withAnimation(.smooth) {
-                // We now only remove items that no longer exist in the dataset
-                let loadedAssetIds = items.map { $0.id }
-                
-                // Only remove items that are no longer in the data
-                // This allows us to preserve previously loaded items that failed to load this time
-                let itemsToRemove = portfolioItems.filter { !loadedAssetIds.contains($0.id) }
-                for item in itemsToRemove {
-                    if let index = portfolioItems.firstIndex(where: { $0.id == item.id }) {
-                        portfolioItems.remove(at: index)
-                    }
-                }
-                
-                // Ensure items are sorted by value
-                portfolioItems = portfolioItems.sorted(by: { $0.totalValue > $1.totalValue })
-                
-                // Only recalculate the final portfolio value if we have new items
-                if !items.isEmpty {
-                    portfolioValue = portfolioItems.reduce(0) { $0 + $1.totalValue }
-                }
+                isLoading = false
+                isRefreshing = false
             }
         }
     }
@@ -672,7 +673,36 @@ struct ContentView: View {
 
 // MARK: - Asset Detail View
 struct AssetDetailView: View {
-    let asset: AssetViewModel
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var supabaseManager: SupabaseManager
+    
+    // Instead of a simple let asset, we'll use @State so we can update it
+    @State private var asset: AssetViewModel
+    @State private var isRefreshing = false
+    
+    // Get fresh transactions from SwiftData
+    @Query private var transactions: [Transaction]
+    
+    // We need an asset ID to filter transactions
+    let assetId: String
+    
+    // Initialize with an AssetViewModel
+    init(asset: AssetViewModel) {
+        self.asset = asset
+        self.assetId = asset.id
+        
+        // Create a transaction filter predicate for this asset
+        let assetIdString = asset.id // Store the id value separately
+        let predicate = #Predicate<Transaction> { transaction in
+            transaction.asset_id == assetIdString
+        }
+        
+        // Apply the predicate to the @Query using a FetchDescriptor
+        _transactions = Query(FetchDescriptor<Transaction>(predicate: predicate, sortBy: [SortDescriptor(\.transaction_date, order: .reverse)]))
+        
+        // Print initialization info
+        print("🏗️ Initializing AssetDetailView for \(asset.name) with ID \(asset.id)")
+    }
     
     var body: some View {
         ZStack {
@@ -845,14 +875,14 @@ struct AssetDetailView: View {
                                 .font(Theme.Typography.title3)
                                 .foregroundColor(Theme.Colors.primaryText)
                             
-                            if asset.transactions.isEmpty {
+                            if transactions.isEmpty {
                                 Text("No transactions found for this asset")
                                     .font(Theme.Typography.body)
                                     .foregroundColor(Theme.Colors.secondaryText)
                                     .padding(.top, 8)
                             } else {
                                 // Transaction List
-                                ForEach(asset.transactions.sorted(by: { $0.date > $1.date })) { transaction in
+                                ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
                                     VStack(spacing: 0) {
                                         HStack {
                                             // Transaction type indicator
@@ -870,7 +900,7 @@ struct AssetDetailView: View {
                                                     .font(Theme.Typography.bodyBold)
                                                     .foregroundColor(Theme.Colors.primaryText)
                                                 
-                                                Text(transaction.date.formatted(date: .abbreviated, time: .shortened))
+                                                Text(transaction.transaction_date.formatted(date: .abbreviated, time: .shortened))
                                                     .font(Theme.Typography.caption)
                                                     .foregroundColor(Theme.Colors.secondaryText)
                                             }
@@ -884,11 +914,11 @@ struct AssetDetailView: View {
                                                     .contentTransition(.numericText())
                                                     .animation(.smooth, value: transaction.quantity)
                                                 
-                                                Text("\(FormatHelper.formatCurrency(transaction.price)) € per unit")
+                                                Text("\(FormatHelper.formatCurrency(transaction.price_per_unit)) € per unit")
                                                     .font(.system(.caption, design: .monospaced))
                                                     .foregroundColor(Theme.Colors.secondaryText)
                                                     .contentTransition(.numericText())
-                                                    .animation(.smooth, value: transaction.price)
+                                                    .animation(.smooth, value: transaction.price_per_unit)
                                             }
                                         }
                                         .padding(.vertical, 12)
@@ -907,9 +937,240 @@ struct AssetDetailView: View {
                 }
                 .padding(16)
             }
+            .refreshable {
+                await refreshAssetData()
+            }
+            .overlay(
+                isRefreshing ? ProgressView()
+                    .tint(Theme.Colors.accent)
+                    .scaleEffect(1.0)
+                    .frame(width: 50, height: 50)
+                    .background(Color.black.opacity(0.1))
+                    .cornerRadius(10) : nil
+            )
+            .onAppear {
+                // Refresh data when the view appears
+                Task {
+                    print("🔄 AssetDetailView appeared for \(asset.name)")
+                    await refreshAssetData()
+                }
+            }
+            .onChange(of: transactions.count) { oldCount, newCount in
+                // Refresh data whenever the transaction count changes
+                print("📈 Transaction count changed from \(oldCount) to \(newCount)")
+                if oldCount != newCount {
+                    Task {
+                        await refreshAssetData()
+                    }
+                }
+            }
         }
         .navigationTitle(asset.name)
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task {
+                        await refreshAssetData()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .symbolEffect(.pulse, options: .speed(1.5), value: isRefreshing)
+                }
+                .disabled(isRefreshing)
+            }
+        }
+    }
+    
+    // Function to refresh asset data
+    private func refreshAssetData() async {
+        // Set refreshing state
+        isRefreshing = true
+        
+        print("🔄 Starting complete asset refresh including API data")
+        
+        // 1. First, fetch fresh asset data from Supabase if possible
+        do {
+            // Try to get updated asset data from API (requesting fresh data)
+            let assetResponses = try await supabaseManager.fetchAssets()
+            print("🌐 Successfully fetched fresh asset data from API")
+            
+            // Also refresh transactions for this asset (requesting fresh data)
+            let transactionResponses = try await supabaseManager.fetchTransactions()
+            print("🌐 Successfully fetched fresh transaction data from API")
+            
+            // Update local SwiftData models on the main thread
+            await MainActor.run {
+                // Check if the asset still exists in Supabase
+                let assetIdForFetch = self.assetId
+                let assetStillExists = assetResponses.contains(where: { $0.id == assetIdForFetch })
+                
+                if !assetStillExists {
+                    print("❌ Asset with ID \(assetIdForFetch) no longer exists on server")
+                    // We'll let the user continue viewing the asset details but will update UI
+                    // to show that the asset has been deleted on the server
+                }
+                
+                // Update assets in SwiftData
+                for assetResponse in assetResponses {
+                    if let existingAsset = try? modelContext.fetch(FetchDescriptor<Asset>(predicate: #Predicate { $0.id == assetResponse.id })).first {
+                        // Update existing asset
+                        existingAsset.symbol = assetResponse.symbol
+                        existingAsset.name = assetResponse.name
+                        existingAsset.isin = assetResponse.isin
+                        existingAsset.type = AssetType(rawValue: assetResponse.type) ?? .etf
+                        existingAsset.updated_at = Date()
+                        print("📝 Updated existing asset in SwiftData: \(existingAsset.name)")
+                    }
+                }
+                
+                // Get all transactions for this asset from local database
+                let assetTransactionsFetch = FetchDescriptor<Transaction>(predicate: #Predicate { transaction in
+                    transaction.asset_id == assetIdForFetch
+                })
+                let localTransactions = try? modelContext.fetch(assetTransactionsFetch)
+                
+                // Create set of server transaction IDs
+                let apiTransactionIds = Set(transactionResponses.filter { $0.asset_id == assetIdForFetch }.map { $0.id })
+                
+                // Delete local transactions that no longer exist on server
+                if let localTransactions = localTransactions {
+                    for transaction in localTransactions {
+                        if !apiTransactionIds.contains(transaction.id) {
+                            print("🗑️ Deleting transaction that no longer exists on server: \(transaction.id)")
+                            modelContext.delete(transaction)
+                        }
+                    }
+                }
+                
+                // Update transactions in SwiftData
+                for transactionResponse in transactionResponses.filter({ $0.asset_id == assetIdForFetch }) {
+                    if let existingTransaction = try? modelContext.fetch(FetchDescriptor<Transaction>(predicate: #Predicate { $0.id == transactionResponse.id })).first {
+                        // Delete the existing transaction to avoid conflicts
+                        modelContext.delete(existingTransaction)
+                        print("🗑️ Deleted existing transaction for update: \(existingTransaction.id)")
+                    }
+                    
+                    // Create new transaction
+                    let newTransaction = transactionResponse.toTransaction()
+                    
+                    // Set asset relationship
+                    let asset = try? modelContext.fetch(FetchDescriptor<Asset>(predicate: #Predicate { $0.id == assetIdForFetch })).first
+                    if let asset = asset {
+                        newTransaction.asset = asset
+                    }
+                    
+                    modelContext.insert(newTransaction)
+                    print("➕ Inserted updated transaction: \(newTransaction.id)")
+                }
+                
+                // Save changes
+                try? modelContext.save()
+            }
+        } catch {
+            print("❌ Error refreshing from API: \(error.localizedDescription). Will continue with local data.")
+        }
+        
+        // 2. Now fetch the asset from SwiftData and get its latest transactions
+        if let assetModel = try? modelContext.fetch(FetchDescriptor<Asset>(predicate: #Predicate { $0.id == assetId })).first {
+            // Get transactions for this asset
+            let transactionsFetch = FetchDescriptor<Transaction>(predicate: #Predicate { transaction in
+                transaction.asset_id == assetId
+            }, sortBy: [SortDescriptor(\.transaction_date, order: .reverse)])
+            
+            // Fetch the transactions first to have them available for calculations
+            let fetchedTransactions = (try? modelContext.fetch(transactionsFetch)) ?? []
+            
+            // Convert transactions to view models if needed (but we don't assign to transactions property directly)
+            let transactionViewModels = fetchedTransactions.map { transaction in
+                TransactionViewModel(
+                    id: transaction.id,
+                    assetId: transaction.asset_id,
+                    assetName: transaction.asset?.name ?? "Unknown Asset",
+                    type: transaction.type,
+                    quantity: transaction.quantity,
+                    price: transaction.price_per_unit,
+                    totalAmount: transaction.total_amount,
+                    date: transaction.transaction_date
+                )
+            }
+            
+            // Create an updated asset view model with the latest data
+            var updatedAssetViewModel = self.asset
+            
+            // For savings accounts, process interest rate history
+            if assetModel.type == .savings {
+                // Get interest rate history from the asset relationship
+                let interestRateHistory = assetModel.interestRateHistory
+                
+                // Process interest rates if needed, but don't try to store them in properties that don't exist
+                if !interestRateHistory.isEmpty {
+                    let latestRate = interestRateHistory.sorted { $0.start_date > $1.start_date }.first?.rate ?? 0.0
+                    // Use the latest rate in our updated view model
+                    updatedAssetViewModel.interest_rate = latestRate
+                }
+            }
+            
+            // 3. Get a fresh view model with API data for price using the AssetServiceManager
+            // Pass the Asset model, not the AssetViewModel
+            _ = AssetServiceManager.shared.getAssetViewModel(
+                asset: assetModel,
+                transactions: fetchedTransactions,
+                forceRefresh: true,
+                interestRateHistory: assetModel.type == .savings ? assetModel.interestRateHistory : [],
+                supabaseManager: supabaseManager,
+                onUpdate: { enrichedViewModel in
+                    // Update our asset view model with the enriched data on the main thread
+                    withAnimation {
+                        self.asset = enrichedViewModel
+                    }
+                }
+            )
+            
+            // Calculate basic metrics while waiting for API data
+            if !fetchedTransactions.isEmpty {
+                // Calculate total quantity
+                let calculatedTotalQuantity = fetchedTransactions.reduce(0) { result, transaction in
+                    result + (transaction.type == .buy ? transaction.quantity : -transaction.quantity)
+                }
+                
+                // Calculate total cost
+                let calculatedTotalCost = fetchedTransactions.reduce(0) { result, transaction in
+                    result + (transaction.type == .buy ? transaction.total_amount : -transaction.total_amount)
+                }
+                
+                if calculatedTotalQuantity > 0 {
+                    // Calculate average price
+                    let calculatedAveragePrice = calculatedTotalCost / calculatedTotalQuantity
+                    
+                    // Update with local calculations
+                    if calculatedTotalQuantity > 0 {
+                        updatedAssetViewModel.totalQuantity = calculatedTotalQuantity
+                        updatedAssetViewModel.averagePrice = calculatedAveragePrice
+                        
+                        // If we have a current price, calculate profit/loss
+                        if updatedAssetViewModel.currentPrice > 0 {
+                            let currentPrice = updatedAssetViewModel.currentPrice
+                            let calculatedProfitLoss = (currentPrice * calculatedTotalQuantity) - calculatedTotalCost
+                            let calculatedProfitLossPercentage = calculatedTotalCost > 0 ? 
+                                (calculatedProfitLoss / calculatedTotalCost) * 100 : 0
+                            
+                            updatedAssetViewModel.profitLoss = calculatedProfitLoss
+                            updatedAssetViewModel.profitLossPercentage = calculatedProfitLossPercentage
+                            updatedAssetViewModel.totalValue = currentPrice * calculatedTotalQuantity
+                        }
+                        
+                        // Update the displayed asset view model with our calculated values
+                        self.asset = updatedAssetViewModel
+                    }
+                }
+            }
+        }
+        
+        // Update UI state
+        withAnimation {
+            isRefreshing = false
+        }
     }
 }
 
@@ -1006,7 +1267,6 @@ struct AddAssetView: View {
                                                         }
                                                     }
                                                 }
-                                                Spacer()
                                             }
                                             .padding()
                                             .background(Theme.Colors.secondaryBackground)
@@ -1279,6 +1539,8 @@ struct AssetSearchResult: Identifiable {
 struct AddTransactionView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var supabaseManager: SupabaseManager
+    @Environment(\.modelContext) private var modelContext
+    
     var assets: [AssetViewModel]
     var onComplete: () -> Void
     
@@ -1513,9 +1775,45 @@ struct AddTransactionView: View {
                 )
                 
                 if !transactionId.isEmpty {
-                    // Transaction was added successfully
-                    onComplete()
-                    dismiss()
+                    // Check if the transaction exists in our local database already
+                    let fetchDescriptor = FetchDescriptor<Transaction>(predicate: #Predicate { $0.id == transactionId })
+                    let existingTransaction = try? modelContext.fetch(fetchDescriptor).first
+                    
+                    // If not found locally, create it now rather than waiting for a sync
+                    if existingTransaction == nil {
+                        print("Creating local transaction record to ensure immediate UI update")
+                        let newTransaction = Transaction(
+                            id: transactionId,
+                            asset_id: selectedAsset.id,
+                            type: transactionType,
+                            quantity: quantityValue,
+                            price_per_unit: priceValue, 
+                            total_amount: totalAmount,
+                            transaction_date: transactionDate,
+                            created_at: Date(),
+                            updated_at: Date()
+                        )
+                        
+                        // Try to find the asset to establish the relationship 
+                        // Extract the ID string from the AssetViewModel to avoid type mismatch in the predicate
+                        let assetId = selectedAsset.id
+                        let assetFetchDescriptor = FetchDescriptor<Asset>(predicate: #Predicate { $0.id == assetId })
+                        if let asset = try? modelContext.fetch(assetFetchDescriptor).first {
+                            newTransaction.asset = asset
+                            print("Linked new transaction to asset \(asset.name)")
+                        }
+                        
+                        // Insert the transaction into the local database
+                        modelContext.insert(newTransaction)
+                        try? modelContext.save()
+                        print("Successfully saved new transaction locally")
+                    }
+                    
+                    // Transaction was added successfully - call completion and dismiss
+                    await MainActor.run {
+                        onComplete()
+                        dismiss()
+                    }
                 } else {
                     // Failed to add transaction
                     errorMessage = "Failed to add transaction. Please try again."
