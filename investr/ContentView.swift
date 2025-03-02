@@ -202,7 +202,8 @@ struct ContentView: View {
                                     .foregroundColor(Theme.Colors.secondaryText)
                                 
                                 let totalInvested = calculateTotalInvested()
-                                let performancePercentage = totalInvested > 0 ? ((portfolioValue - totalInvested) / totalInvested) * 100 : 0
+                                let nonSavingsProfitLoss = calculateTotalProfitLoss() 
+                                let performancePercentage = totalInvested > 0 ? (nonSavingsProfitLoss / totalInvested) * 100 : 0
                                 
                                 HStack(spacing: 2) {
                                     if performancePercentage != 0 {
@@ -216,20 +217,40 @@ struct ContentView: View {
                                 .foregroundColor(performancePercentage >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
                             }
                             
-                            // Profit/Loss (PLUS/MOINS VALUE)
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text("PLUS/MOINS VALUE")
-                                    .font(Theme.Typography.caption)
-                                    .foregroundColor(Theme.Colors.secondaryText)
+                            // Replace Profit/Loss with two rows: 
+                            // 1. Only non-savings profit/loss 
+                            // 2. Savings interest
+                            VStack(alignment: .trailing, spacing: 16) {
+                                // Non-savings profit/loss
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text("PLUS/MOINS VALUE")
+                                        .font(Theme.Typography.caption)
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                    
+                                    let profitLoss = calculateTotalProfitLoss()
+                                    
+                                    Text("\(FormatHelper.formatCurrency(profitLoss)) €")
+                                        .font(.system(.body, design: .monospaced).bold())
+                                        .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                        .contentTransition(.numericText())
+                                        .animation(.smooth, value: profitLoss)
+                                }
                                 
-                                let totalInvested = calculateTotalInvested()
-                                let profitLoss = portfolioValue - totalInvested
-                                
-                                Text("\(FormatHelper.formatCurrency(profitLoss)) €")
-                                    .font(.system(.body, design: .monospaced).bold())
-                                    .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                                    .contentTransition(.numericText())
-                                    .animation(.smooth, value: profitLoss)
+                                // Show interest accrued only if there are savings accounts with interest
+                                let interestAccrued = calculateTotalInterestAccrued()
+                                if interestAccrued > 0 {
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text("INTEREST ACCRUED")
+                                            .font(Theme.Typography.caption)
+                                            .foregroundColor(Theme.Colors.secondaryText)
+                                        
+                                        Text("\(FormatHelper.formatCurrency(interestAccrued)) €")
+                                            .font(.system(.body, design: .monospaced).bold())
+                                            .foregroundColor(Theme.Colors.positive)
+                                            .contentTransition(.numericText())
+                                            .animation(.smooth, value: interestAccrued)
+                                    }
+                                }
                             }
                         }
                     }
@@ -342,27 +363,54 @@ struct ContentView: View {
             
             Spacer()
             
-            // Asset value
-            VStack(alignment: .trailing, spacing: 4) {
-                Text("\(FormatHelper.formatCurrency(item.totalValue)) €")
-                    .font(.system(.body, design: .monospaced).bold())
-                    .foregroundColor(Theme.Colors.primaryText)
-                    .contentTransition(.numericText())
-                    .animation(.smooth, value: item.totalValue)
-                
-                if item.profitLoss != 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: item.profitLoss >= 0 ? "arrow.up" : "arrow.down")
-                        Text("\(FormatHelper.formatCurrency(abs(item.profitLoss))) €")
+            // Asset value - different display for savings accounts
+            if item.type == .savings {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(FormatHelper.formatCurrency(item.totalValue)) €")
+                        .font(.system(.body, design: .monospaced).bold())
+                        .foregroundColor(Theme.Colors.primaryText)
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: item.totalValue)
+                    
+                    if let interestRate = item.interest_rate, interestRate > 0 {
+                        Text("\(FormatHelper.formatPercentage(interestRate))% interest")
                             .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(Theme.Colors.secondaryText)
                             .contentTransition(.numericText())
-                            .animation(.smooth, value: item.profitLoss)
-                        Text("(\(FormatHelper.formatPercentage(item.profitLossPercentage)))")
-                            .font(.system(.caption, design: .monospaced))
-                            .contentTransition(.numericText())
-                            .animation(.smooth, value: item.profitLossPercentage)
+                            .animation(.smooth, value: interestRate)
                     }
-                    .foregroundColor(item.profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                    
+                    if let accruedInterest = item.accruedInterest, accruedInterest > 0 {
+                        Text("+ \(FormatHelper.formatCurrency(accruedInterest)) € interest")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(Theme.Colors.positive)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: accruedInterest)
+                    }
+                }
+            } else {
+                // Standard asset value display (ETFs, crypto)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(FormatHelper.formatCurrency(item.totalValue)) €")
+                        .font(.system(.body, design: .monospaced).bold())
+                        .foregroundColor(Theme.Colors.primaryText)
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: item.totalValue)
+                    
+                    if item.profitLoss != 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: item.profitLoss >= 0 ? "arrow.up" : "arrow.down")
+                            Text("\(FormatHelper.formatCurrency(abs(item.profitLoss))) €")
+                                .font(.system(.caption, design: .monospaced))
+                                .contentTransition(.numericText())
+                                .animation(.smooth, value: item.profitLoss)
+                            Text("(\(FormatHelper.formatPercentage(item.profitLossPercentage)))")
+                                .font(.system(.caption, design: .monospaced))
+                                .contentTransition(.numericText())
+                                .animation(.smooth, value: item.profitLossPercentage)
+                        }
+                        .foregroundColor(item.profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                    }
                 }
             }
         }
@@ -813,12 +861,45 @@ struct ContentView: View {
         // Calculate the total invested amount across all assets
         let service = BaseAssetService()
         let totalInvested = portfolioItems.reduce(0.0) { sum, item in
-            // For each asset, calculate its total cost from transactions
-            let assetTransactions = transactions.filter { $0.asset_id == item.id }
-            let assetCost = service.calculateTotalCost(transactions: assetTransactions)
-            return sum + assetCost
+            // For savings accounts, the total invested is the same as the total value minus accrued interest
+            if item.type == .savings {
+                return sum + (item.totalValue - (item.accruedInterest ?? 0))
+            } else {
+                // For other assets, calculate total cost from transactions
+                let assetTransactions = transactions.filter { $0.asset_id == item.id }
+                let assetCost = service.calculateTotalCost(transactions: assetTransactions)
+                return sum + assetCost
+            }
         }
         return totalInvested
+    }
+    
+    // Calculate total profit/loss for non-savings assets only
+    private func calculateTotalProfitLoss() -> Double {
+        let totalInvested = calculateTotalInvested()
+        
+        // Get total value of non-savings assets
+        let nonSavingsValue = portfolioItems
+            .filter { $0.type != .savings }
+            .reduce(0.0) { $0 + $1.totalValue }
+        
+        // Get total invested amount in non-savings assets
+        let nonSavingsInvested = portfolioItems
+            .filter { $0.type != .savings }
+            .reduce(0.0) { sum, item in
+                let assetTransactions = transactions.filter { $0.asset_id == item.id }
+                let assetCost = BaseAssetService().calculateTotalCost(transactions: assetTransactions)
+                return sum + assetCost
+            }
+        
+        return nonSavingsValue - nonSavingsInvested
+    }
+    
+    // Calculate total interest accrued across all savings accounts
+    private func calculateTotalInterestAccrued() -> Double {
+        return portfolioItems
+            .filter { $0.type == .savings }
+            .reduce(0.0) { $0 + ($1.accruedInterest ?? 0) }
     }
 }
 
@@ -867,236 +948,70 @@ struct AssetDetailView: View {
         ZStack {
             Theme.Colors.background.ignoresSafeArea()
             
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Layout.spacing * 1.5) {
-                    // Current Value Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        // Total Value Display (prominently displayed)
-                        Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
-                            .font(.system(size: 38, weight: .bold, design: .monospaced))
+            assetDetailContent
+        }
+        .navigationTitle(asset.name)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    // Delete button
+                    Button {
+                        showDeleteAlert = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundColor(Theme.Colors.negative)
+                    }
+                    
+                    // Refresh button
+                    Button {
+                        Task {
+                            await refreshAssetData()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
                             .foregroundColor(Theme.Colors.primaryText)
-                            .contentTransition(.numericText())
-                            .animation(.smooth, value: asset.totalValue)
-                        
-                        if asset.profitLoss != 0 {
-                            HStack(spacing: 4) {
-                                Image(systemName: asset.profitLoss >= 0 ? "arrow.up" : "arrow.down")
-                                Text("\(FormatHelper.formatCurrency(abs(asset.profitLoss))) €")
-                                    .font(.system(.body, design: .monospaced))
-                                    .contentTransition(.numericText())
-                                    .animation(.smooth, value: asset.profitLoss)
-                                Text("(\(FormatHelper.formatPercentage(asset.profitLossPercentage)))")
-                                    .font(.system(.body, design: .monospaced))
-                                    .contentTransition(.numericText())
-                                    .animation(.smooth, value: asset.profitLossPercentage)
-                            }
-                            .foregroundColor(asset.profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                        }
-                    }
-                    .padding(.bottom, 10)
-                    
-                    // Main Content
-                    VStack(alignment: .leading, spacing: 24) {
-                        // Asset Details Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            // Section Header
-                            Text("Asset Details")
-                                .font(Theme.Typography.title3)
-                                .foregroundColor(Theme.Colors.primaryText)
-                                .padding(.bottom, 4)
-                            
-                            // Asset Info Group
-                            VStack(spacing: 16) {
-                                // Symbol & Type
-                                HStack {
-                                    // Symbol
-                                    VStack(alignment: .leading) {
-                                        Text("Symbol")
-                                            .font(Theme.Typography.caption)
-                                            .foregroundColor(Theme.Colors.secondaryText)
-                                        Text(asset.symbol)
-                                            .font(Theme.Typography.bodyBold)
-                                            .foregroundColor(Theme.Colors.primaryText)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    // Type
-                                    VStack(alignment: .trailing) {
-                                        Text("Type")
-                                            .font(Theme.Typography.caption)
-                                            .foregroundColor(Theme.Colors.secondaryText)
-                                        Text(asset.type.rawValue.capitalized)
-                                            .font(Theme.Typography.caption)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Theme.Colors.accent.opacity(0.2))
-                                            .cornerRadius(8)
-                                            .foregroundColor(Theme.Colors.accent)
-                                    }
-                                }
-                                
-                                // Current Price & 24h Change
-                                HStack {
-                                    // Current Price
-                                    VStack(alignment: .leading) {
-                                        Text("Current Price")
-                                            .font(Theme.Typography.caption)
-                                            .foregroundColor(Theme.Colors.secondaryText)
-                                        Text("\(FormatHelper.formatCurrency(asset.currentPrice)) €")
-                                            .font(.system(.body, design: .monospaced).bold())
-                                            .foregroundColor(Theme.Colors.primaryText)
-                                            .contentTransition(.numericText())
-                                            .animation(.smooth, value: asset.currentPrice)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    // 24h Change
-                                    if let change24h = asset.change24h {
-                                        VStack(alignment: .trailing) {
-                                            Text("24h Change")
-                                                .font(Theme.Typography.caption)
-                                                .foregroundColor(Theme.Colors.secondaryText)
-                                            HStack(spacing: 2) {
-                                                Image(systemName: change24h >= 0 ? "arrow.up" : "arrow.down")
-                                                Text("\(FormatHelper.formatPercentage(abs(change24h)))")
-                                                    .font(.system(.body, design: .monospaced))
-                                                    .contentTransition(.numericText())
-                                                    .animation(.smooth, value: change24h)
-                                            }
-                                            .foregroundColor(change24h >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                                        }
-                                    } else {
-                                        VStack(alignment: .trailing) {
-                                            Text("24h Change")
-                                                .font(Theme.Typography.caption)
-                                                .foregroundColor(Theme.Colors.secondaryText)
-                                            Text("No data")
-                                                .font(.system(.body, design: .monospaced))
-                                                .foregroundColor(Theme.Colors.secondaryText)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Divider()
-                            .background(Theme.Colors.separator)
-                            .padding(.vertical, 4)
-                        
-                        // Position Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            // Section Header
-                            Text("Your Position")
-                                .font(Theme.Typography.title3)
-                                .foregroundColor(Theme.Colors.primaryText)
-                                .padding(.bottom, 4)
-                            
-                            // Position Stats
-                            HStack(spacing: 24) {
-                                // Quantity
-                                VStack(alignment: .leading) {
-                                    Text("Quantity")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    Text(FormatHelper.formatQuantity(asset.totalQuantity))
-                                        .font(.system(.body, design: .monospaced).bold())
-                                        .foregroundColor(Theme.Colors.primaryText)
-                                        .contentTransition(.numericText())
-                                        .animation(.smooth, value: asset.totalQuantity)
-                                }
-                                
-                                Spacer()
-                                
-                                // Average Price
-                                VStack(alignment: .trailing) {
-                                    Text("Average Price")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    Text("\(FormatHelper.formatCurrency(asset.averagePrice)) €")
-                                        .font(.system(.body, design: .monospaced).bold())
-                                        .foregroundColor(Theme.Colors.primaryText)
-                                        .contentTransition(.numericText())
-                                        .animation(.smooth, value: asset.averagePrice)
-                                }
-                            }
-                        }
                     }
                     
-                    Divider()
-                        .background(Theme.Colors.separator)
-                        .padding(.vertical, 4)
-                    
-                    // Transactions Section
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Section Header
-                        Text("Transaction History")
-                            .font(Theme.Typography.title3)
-                            .foregroundColor(Theme.Colors.primaryText)
-                        
-                        if transactions.isEmpty {
-                            Text("No transactions found for this asset")
-                                .font(Theme.Typography.body)
-                                .foregroundColor(Theme.Colors.secondaryText)
-                                .padding(.top, 8)
-                        } else {
-                            // Transaction List
-                            ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
-                                VStack(spacing: 0) {
-                                    HStack {
-                                        // Transaction type indicator
-                                        Image(systemName: transaction.type == .buy ? "arrow.down" : "arrow.up")
-                                            .foregroundColor(transaction.type == .buy ? Theme.Colors.positive : Theme.Colors.negative)
-                                            .font(.system(size: 14, weight: .bold))
-                                            .frame(width: 28, height: 28)
-                                            .background(
-                                                Circle()
-                                                    .fill(transaction.type == .buy ? Theme.Colors.positive.opacity(0.2) : Theme.Colors.negative.opacity(0.2))
-                                            )
-                                        
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(transaction.type == .buy ? "Buy" : "Sell")
-                                                .font(Theme.Typography.bodyBold)
-                                                .foregroundColor(Theme.Colors.primaryText)
-                                            
-                                            Text(transaction.transaction_date.formatted(date: .abbreviated, time: .shortened))
-                                                .font(Theme.Typography.caption)
-                                                .foregroundColor(Theme.Colors.secondaryText)
-                                        }
-                                        
-                                        Spacer()
-                                        
-                                        VStack(alignment: .trailing, spacing: 4) {
-                                            Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
-                                                .font(.system(.body, design: .monospaced).bold())
-                                                .foregroundColor(Theme.Colors.primaryText)
-                                                .contentTransition(.numericText())
-                                                .animation(.smooth, value: transaction.quantity)
-                                            
-                                            Text("\(FormatHelper.formatCurrency(transaction.price_per_unit)) € per unit")
-                                                .font(.system(.caption, design: .monospaced))
-                                                .foregroundColor(Theme.Colors.secondaryText)
-                                                .contentTransition(.numericText())
-                                                .animation(.smooth, value: transaction.price_per_unit)
-                                        }
-                                    }
-                                    .padding(.vertical, 12)
-                                    .padding(.horizontal, 8)
-                                }
-                                .background(Theme.Colors.secondaryBackground)
-                                .cornerRadius(Theme.Layout.cornerRadius)
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
+                    // Removing the Add transaction button that's causing crashes
                 }
-                .padding(16)
-                .background(Theme.Colors.secondaryBackground)
-                .cornerRadius(16)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
             }
+        }
+        .alert("Delete Asset", isPresented: $showDeleteAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    await deleteAsset()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete this asset? This will also delete all associated transactions and cannot be undone.")
+        }
+    }
+    
+    // Extract the complex content into a separate property
+    private var assetDetailContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Layout.spacing * 1.5) {
+                // Header view (extracted to reduce complexity)
+                headerView
+                    .padding(.bottom, 10)
+                
+                // Asset details content (extracted to reduce complexity)
+                assetDetailsContent
+                
+                Divider()
+                    .background(Theme.Colors.separator)
+                    .padding(.vertical, 4)
+                
+                // Transactions section (extracted to reduce complexity)
+                transactionsSection
+            }
+            .padding(16)
+            .background(Theme.Colors.secondaryBackground)
+            .cornerRadius(Theme.Layout.cornerRadius)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
             .refreshable {
                 await refreshAssetData()
             }
@@ -1125,42 +1040,92 @@ struct AssetDetailView: View {
                 }
             }
         }
-        .navigationTitle(asset.name)
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 16) {
-                    // Delete button
-                    Button {
-                        showDeleteAlert = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .foregroundColor(Theme.Colors.negative)
-                    }
+    }
+    
+    // Extract the header view to a separate property
+    private var headerView: some View {
+        Group {
+            if asset.type == .savings {
+                savingsHeaderView
+            } else {
+                standardHeaderView
+            }
+        }
+    }
+    
+    // Extract the asset details content to a separate property
+    private var assetDetailsContent: some View {
+        Group {
+            if asset.type == .savings {
+                savingsDetailContent
+            } else {
+                standardAssetDetailContent
+            }
+        }
+    }
+    
+    // Extract the transactions section to a separate property
+    private var transactionsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Section Header
+            Text("Transaction History")
+                .font(Theme.Typography.title3)
+                .foregroundColor(Theme.Colors.primaryText)
+            
+            if transactions.isEmpty {
+                Text("No transactions found for this asset")
+                    .font(Theme.Typography.body)
+                    .foregroundColor(Theme.Colors.secondaryText)
+                    .padding(.top, 8)
+            } else {
+                // Transaction List (kept simple)
+                ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
+                    transactionRow(transaction: transaction)
+                }
+            }
+        }
+    }
+    
+    // Extract the transaction row to a separate method
+    private func transactionRow(transaction: Transaction) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                // Transaction type indicator
+                Image(systemName: transaction.type == .buy ? "arrow.down" : "arrow.up")
+                    .foregroundColor(transaction.type == .buy ? Theme.Colors.positive : Theme.Colors.negative)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transaction.type == .buy ? "Buy" : "Sell")
+                        .font(Theme.Typography.bodyBold)
+                        .foregroundColor(Theme.Colors.primaryText)
                     
-                    // Refresh button
-                    Button {
-                        Task {
-                            await refreshAssetData()
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .symbolEffect(.pulse, options: .speed(1.5), value: isRefreshing)
-                    }
-                    .disabled(isRefreshing)
+                    Text(transaction.transaction_date.formatted(date: .abbreviated, time: .shortened))
+                        .font(Theme.Typography.caption)
+                        .foregroundColor(Theme.Colors.secondaryText)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
+                        .font(.system(.body, design: .monospaced).bold())
+                        .foregroundColor(Theme.Colors.primaryText)
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: transaction.quantity)
+                    
+                    Text("\(FormatHelper.formatCurrency(transaction.price_per_unit)) € per unit")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(Theme.Colors.secondaryText)
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: transaction.price_per_unit)
                 }
             }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
         }
-        .alert("Delete Asset", isPresented: $showDeleteAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                Task {
-                    await deleteAsset()
-                }
-            }
-        } message: {
-            Text("Are you sure you want to delete this asset? This will also delete all associated transactions and cannot be undone.")
-        }
+        .background(Theme.Colors.secondaryBackground)
+        .cornerRadius(Theme.Layout.cornerRadius)
+        .padding(.vertical, 4)
     }
     
     // Function to refresh asset data
@@ -1394,6 +1359,310 @@ struct AssetDetailView: View {
             }
         }
     }
+    
+    // This new computed property holds the view for savings accounts
+    private var savingsDetailContent: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Asset Details Section
+            VStack(alignment: .leading, spacing: 16) {
+                // Section Header
+                Text("Account Details")
+                    .font(Theme.Typography.title3)
+                    .foregroundColor(Theme.Colors.primaryText)
+                    .padding(.bottom, 4)
+                
+                // Asset Info Group
+                VStack(spacing: 16) {
+                    // Symbol & Type
+                    HStack {
+                        // Symbol
+                        VStack(alignment: .leading) {
+                            Text("Symbol")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text(asset.symbol)
+                                .font(Theme.Typography.bodyBold)
+                                .foregroundColor(Theme.Colors.primaryText)
+                        }
+                        
+                        Spacer()
+                        
+                        // Type
+                        VStack(alignment: .trailing) {
+                            Text("Type")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text(asset.type.rawValue.capitalized)
+                                .font(Theme.Typography.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Theme.Colors.accent.opacity(0.2))
+                                .cornerRadius(8)
+                                .foregroundColor(Theme.Colors.accent)
+                        }
+                    }
+                    
+                    // Interest Rate Information
+                    HStack {
+                        // Current Interest Rate
+                        VStack(alignment: .leading) {
+                            Text("Interest Rate")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text("\(FormatHelper.formatPercentage(asset.interest_rate ?? 0)) %")
+                                .font(.system(.body, design: .monospaced).bold())
+                                .foregroundColor(Theme.Colors.primaryText)
+                                .contentTransition(.numericText())
+                                .animation(.smooth, value: asset.interest_rate)
+                        }
+                        
+                        Spacer()
+                        
+                        // Accrued Interest
+                        VStack(alignment: .trailing) {
+                            Text("Accrued Interest")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text("\(FormatHelper.formatCurrency(asset.accruedInterest ?? 0)) €")
+                                .font(.system(.body, design: .monospaced).bold())
+                                .foregroundColor(Theme.Colors.positive)
+                                .contentTransition(.numericText())
+                                .animation(.smooth, value: asset.accruedInterest)
+                        }
+                    }
+                }
+            }
+            
+            Divider()
+                .background(Theme.Colors.separator)
+                .padding(.vertical, 4)
+            
+            // Balance Section
+            VStack(alignment: .leading, spacing: 16) {
+                // Section Header
+                Text("Current Balance")
+                    .font(Theme.Typography.title3)
+                    .foregroundColor(Theme.Colors.primaryText)
+                    .padding(.bottom, 4)
+                
+                // Position Stats
+                HStack(spacing: 24) {
+                    // Balance
+                    VStack(alignment: .leading) {
+                        Text("Balance")
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(Theme.Colors.secondaryText)
+                        Text(FormatHelper.formatCurrency(asset.totalQuantity))
+                            .font(.system(.body, design: .monospaced).bold())
+                            .foregroundColor(Theme.Colors.primaryText)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: asset.totalQuantity)
+                    }
+                    
+                    Spacer()
+                    
+                    // Total Value (Balance + Interest)
+                    VStack(alignment: .trailing) {
+                        Text("Total Value")
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(Theme.Colors.secondaryText)
+                        Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
+                            .font(.system(.body, design: .monospaced).bold())
+                            .foregroundColor(Theme.Colors.primaryText)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: asset.totalValue)
+                    }
+                }
+            }
+        }
+    }
+    
+    // This computed property holds the original view for standard assets
+    private var standardAssetDetailContent: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Asset Details Section
+            VStack(alignment: .leading, spacing: 16) {
+                // Section Header
+                Text("Asset Details")
+                    .font(Theme.Typography.title3)
+                    .foregroundColor(Theme.Colors.primaryText)
+                    .padding(.bottom, 4)
+                
+                // Asset Info Group
+                VStack(spacing: 16) {
+                    // Symbol & Type
+                    HStack {
+                        // Symbol
+                        VStack(alignment: .leading) {
+                            Text("Symbol")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text(asset.symbol)
+                                .font(Theme.Typography.bodyBold)
+                                .foregroundColor(Theme.Colors.primaryText)
+                        }
+                        
+                        Spacer()
+                        
+                        // Type
+                        VStack(alignment: .trailing) {
+                            Text("Type")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text(asset.type.rawValue.capitalized)
+                                .font(Theme.Typography.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Theme.Colors.accent.opacity(0.2))
+                                .cornerRadius(8)
+                                .foregroundColor(Theme.Colors.accent)
+                        }
+                    }
+                    
+                    // Current Price & 24h Change
+                    HStack {
+                        // Current Price
+                        VStack(alignment: .leading) {
+                            Text("Current Price")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            Text("\(FormatHelper.formatCurrency(asset.currentPrice)) €")
+                                .font(.system(.body, design: .monospaced).bold())
+                                .foregroundColor(Theme.Colors.primaryText)
+                                .contentTransition(.numericText())
+                                .animation(.smooth, value: asset.currentPrice)
+                        }
+                        
+                        Spacer()
+                        
+                        // 24h Change
+                        if let change24h = asset.change24h {
+                            VStack(alignment: .trailing) {
+                                Text("24h Change")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                HStack(spacing: 2) {
+                                    Image(systemName: change24h >= 0 ? "arrow.up" : "arrow.down")
+                                    Text("\(FormatHelper.formatPercentage(abs(change24h)))")
+                                        .font(.system(.body, design: .monospaced))
+                                        .contentTransition(.numericText())
+                                        .animation(.smooth, value: change24h)
+                                }
+                                .foregroundColor(change24h >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                            }
+                        } else {
+                            VStack(alignment: .trailing) {
+                                Text("24h Change")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                Text("No data")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Divider()
+                .background(Theme.Colors.separator)
+                .padding(.vertical, 4)
+            
+            // Position Section
+            VStack(alignment: .leading, spacing: 16) {
+                // Section Header
+                Text("Your Position")
+                    .font(Theme.Typography.title3)
+                    .foregroundColor(Theme.Colors.primaryText)
+                    .padding(.bottom, 4)
+                
+                // Position Stats
+                HStack(spacing: 24) {
+                    // Quantity
+                    VStack(alignment: .leading) {
+                        Text("Quantity")
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(Theme.Colors.secondaryText)
+                        Text(FormatHelper.formatQuantity(asset.totalQuantity))
+                            .font(.system(.body, design: .monospaced).bold())
+                            .foregroundColor(Theme.Colors.primaryText)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: asset.totalQuantity)
+                    }
+                    
+                    Spacer()
+                    
+                    // Average Price
+                    VStack(alignment: .trailing) {
+                        Text("Average Price")
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(Theme.Colors.secondaryText)
+                        Text("\(FormatHelper.formatCurrency(asset.averagePrice)) €")
+                            .font(.system(.body, design: .monospaced).bold())
+                            .foregroundColor(Theme.Colors.primaryText)
+                            .contentTransition(.numericText())
+                            .animation(.smooth, value: asset.averagePrice)
+                    }
+                }
+            }
+        }
+    }
+    
+    // Header view for savings accounts
+    private var savingsHeaderView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Total Value Display (prominently displayed)
+            Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
+                .font(.system(size: 38, weight: .bold, design: .monospaced))
+                .foregroundColor(Theme.Colors.primaryText)
+                .contentTransition(.numericText())
+                .animation(.smooth, value: asset.totalValue)
+            
+            // Show accrued interest for savings accounts
+            if let accruedInterest = asset.accruedInterest, accruedInterest > 0 {
+                HStack(spacing: 4) {
+                    Text("Includes")
+                        .font(.system(.body))
+                        .foregroundColor(Theme.Colors.secondaryText)
+                    Text("\(FormatHelper.formatCurrency(accruedInterest)) €")
+                        .font(.system(.body, design: .monospaced))
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: accruedInterest)
+                    Text("in accrued interest")
+                        .font(.system(.body))
+                        .foregroundColor(Theme.Colors.secondaryText)
+                }
+                .foregroundColor(Theme.Colors.positive)
+            }
+        }
+    }
+    
+    // Header view for standard assets (ETFs, crypto)
+    private var standardHeaderView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Total Value Display (prominently displayed)
+            Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
+                .font(.system(size: 38, weight: .bold, design: .monospaced))
+                .foregroundColor(Theme.Colors.primaryText)
+                .contentTransition(.numericText())
+                .animation(.smooth, value: asset.totalValue)
+            
+            if asset.profitLoss != 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: asset.profitLoss >= 0 ? "arrow.up" : "arrow.down")
+                    Text("\(FormatHelper.formatCurrency(abs(asset.profitLoss))) €")
+                        .font(.system(.body, design: .monospaced))
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: asset.profitLoss)
+                    Text("(\(FormatHelper.formatPercentage(asset.profitLossPercentage)))")
+                        .font(.system(.body, design: .monospaced))
+                        .contentTransition(.numericText())
+                        .animation(.smooth, value: asset.profitLossPercentage)
+                }
+                .foregroundColor(asset.profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+            }
+        }
+    }
 }
 
 // MARK: - Add Asset View
@@ -1413,6 +1682,14 @@ struct AddAssetView: View {
     @State private var isSearching = false
     @State private var searchDebounceTimer: Timer?
     
+    // Add focus state to control field navigation
+    enum Field: Int, Hashable {
+        case symbol
+        case name
+        case isin
+    }
+    @FocusState private var focusedField: Field?
+    
     var types: [AssetType] = [.etf, .crypto, .savings]
     
     var body: some View {
@@ -1429,43 +1706,32 @@ struct AddAssetView: View {
                                 .foregroundColor(Theme.Colors.secondaryText)
                                 .padding(.horizontal, Theme.Layout.padding)
                             
-                            HStack {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundColor(Theme.Colors.secondaryText)
-                                TextField("Search for an asset...", text: $searchQuery)
-                                    .foregroundColor(Theme.Colors.primaryText)
-                                    .autocorrectionDisabled(true)
-                                    .textInputAutocapitalization(.never)
-                                    .onChange(of: searchQuery) { oldValue, newValue in
-                                        // Debounce the search
-                                        searchDebounceTimer?.invalidate()
-                                        
-                                        if !newValue.isEmpty && newValue.count >= 2 {
-                                            searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                                                searchAssets(query: newValue)
-                                            }
-                                        } else {
-                                            searchResults = []
+                            // Native searchable implementation
+                            SearchBar(text: $searchQuery, placeholder: "Search for an asset...", isSearching: $isSearching)
+                                .padding(.horizontal, Theme.Layout.padding)
+                                .onChange(of: searchQuery) { oldValue, newValue in
+                                    // Debounce the search
+                                    searchDebounceTimer?.invalidate()
+                                    
+                                    if !newValue.isEmpty && newValue.count >= 2 {
+                                        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                                            searchAssets(query: newValue)
                                         }
+                                    } else {
+                                        searchResults = []
                                     }
-                                
-                                if isSearching {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                        .padding(.trailing, 8)
                                 }
-                            }
-                            .padding()
-                            .background(Theme.Colors.secondaryBackground)
-                            .cornerRadius(Theme.Layout.cornerRadius)
-                            .padding(.horizontal, Theme.Layout.padding)
                             
                             // Display search results
                             if !searchResults.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
+                                LazyVStack(alignment: .leading, spacing: 8) {
                                     ForEach(searchResults) { result in
                                         Button(action: {
                                             selectSearchResult(result)
+                                            // Focus the name field after selecting a result
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                focusedField = .name
+                                            }
                                         }) {
                                             HStack {
                                                 VStack(alignment: .leading, spacing: 4) {
@@ -1490,13 +1756,15 @@ struct AddAssetView: View {
                                                     }
                                                 }
                                             }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .contentShape(Rectangle())
                                         }
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
+                                        .buttonStyle(BorderedButtonStyle())
+                                        .controlSize(.large)
+                                        .padding(.horizontal, Theme.Layout.padding)
                                     }
                                 }
-                                .padding(.horizontal, Theme.Layout.padding)
+                                .padding(.top, 8)
                             }
                         }
                         
@@ -1516,11 +1784,13 @@ struct AddAssetView: View {
                                         .foregroundColor(Theme.Colors.secondaryText)
                                     
                                     TextField("", text: $symbol)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .textFieldStyle(RoundedTextFieldStyle())
                                         .autocapitalization(.none)
+                                        .focused($focusedField, equals: .symbol)
+                                        .submitLabel(.next)
+                                        .onSubmit {
+                                            focusedField = .name
+                                        }
                                 }
                                 
                                 // Name field
@@ -1530,10 +1800,12 @@ struct AddAssetView: View {
                                         .foregroundColor(Theme.Colors.secondaryText)
                                     
                                     TextField("", text: $name)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .textFieldStyle(RoundedTextFieldStyle())
+                                        .focused($focusedField, equals: .name)
+                                        .submitLabel(.next)
+                                        .onSubmit {
+                                            focusedField = .isin
+                                        }
                                 }
                                 
                                 // ISIN field
@@ -1543,11 +1815,13 @@ struct AddAssetView: View {
                                         .foregroundColor(Theme.Colors.secondaryText)
                                     
                                     TextField("", text: $isin)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .textFieldStyle(RoundedTextFieldStyle())
                                         .autocapitalization(.none)
+                                        .focused($focusedField, equals: .isin)
+                                        .submitLabel(.done)
+                                        .onSubmit {
+                                            focusedField = nil
+                                        }
                                 }
                                 
                                 // Type picker
@@ -1598,6 +1872,8 @@ struct AddAssetView: View {
                             )
                             .cornerRadius(Theme.Layout.cornerRadius)
                         }
+                        .buttonStyle(PlainButtonStyle())
+                        .controlSize(.large)
                         .disabled(isAddingAsset || symbol.isEmpty || name.isEmpty)
                         .padding(.horizontal, Theme.Layout.padding)
                         .padding(.top, 24)
@@ -1613,6 +1889,43 @@ struct AddAssetView: View {
                         dismiss()
                     }
                     .foregroundColor(Theme.Colors.accent)
+                }
+                
+                // Single keyboard toolbar for all fields
+                ToolbarItemGroup(placement: .keyboard) {
+                    HStack {
+                        if focusedField != .symbol {
+                            Button("Previous") {
+                                switch focusedField {
+                                case .name:
+                                    focusedField = .symbol
+                                case .isin:
+                                    focusedField = .name
+                                default:
+                                    break
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        if focusedField != .isin {
+                            Button("Next") {
+                                switch focusedField {
+                                case .symbol:
+                                    focusedField = .name
+                                case .name:
+                                    focusedField = .isin
+                                default:
+                                    break
+                                }
+                            }
+                        } else {
+                            Button("Done") {
+                                focusedField = nil
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1736,6 +2049,57 @@ struct AddAssetView: View {
     }
 }
 
+// MARK: - Custom UI Components
+struct SearchBar: View {
+    @Binding var text: String
+    var placeholder: String
+    @Binding var isSearching: Bool
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(text.isEmpty ? Theme.Colors.secondaryText : Theme.Colors.accent)
+                .padding(.leading, 8)
+            
+            TextField(placeholder, text: $text)
+                .padding(12)
+                .foregroundColor(Theme.Colors.primaryText)
+                .autocorrectionDisabled(true)
+                .textInputAutocapitalization(.never)
+            
+            if !text.isEmpty {
+                Button(action: {
+                    text = ""
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(Theme.Colors.secondaryText)
+                        .padding(.trailing, 8)
+                }
+            }
+            
+            if isSearching {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .padding(.trailing, 8)
+            }
+        }
+        .background(Theme.Colors.secondaryBackground)
+        .cornerRadius(Theme.Layout.cornerRadius)
+    }
+}
+
+struct RoundedTextFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .padding(.vertical, 16)
+            .padding(.horizontal, 16)
+            .background(Theme.Colors.secondaryBackground)
+            .cornerRadius(Theme.Layout.cornerRadius)
+            .foregroundColor(Theme.Colors.primaryText)
+            .frame(minHeight: 54)
+    }
+}
+
 // MARK: - Yahoo Finance API Models
 struct YahooSearchResponse: Decodable {
     let quotes: [YahooQuote]
@@ -1774,6 +2138,13 @@ struct AddTransactionView: View {
     @State private var transactionDate = Date()
     @State private var isAddingTransaction = false
     @State private var errorMessage: String?
+    
+    // Add focus state to control field navigation
+    enum Field: Int, Hashable {
+        case quantity
+        case pricePerUnit
+    }
+    @FocusState private var focusedField: Field?
     
     private var calculatedTotalAmount: Double {
         guard let quantityValue = Double(quantity), let priceValue = Double(pricePerUnit) else {
@@ -1816,9 +2187,11 @@ struct AddTransactionView: View {
                                         .foregroundColor(Theme.Colors.secondaryText)
                                         .font(.caption)
                                 }
-                                .padding()
+                                .padding(.vertical, 16)
+                                .padding(.horizontal, 12)
                                 .background(Theme.Colors.secondaryBackground)
                                 .cornerRadius(Theme.Layout.cornerRadius)
+                                .contentShape(Rectangle())
                             }
                             .padding(.horizontal, Theme.Layout.padding)
                         }
@@ -1846,19 +2219,11 @@ struct AddTransactionView: View {
                                     .padding(.vertical, 4)
                                 }
                                 
-                                // Transaction Date
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Date")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    
-                                    DatePicker("", selection: $transactionDate, displayedComponents: .date)
-                                        .datePickerStyle(.compact)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
-                                }
+                                // Transaction Date - anchored to the left, removed section styling
+                                DatePicker("Date", selection: $transactionDate, displayedComponents: .date)
+                                    .datePickerStyle(.compact)
+                                    .foregroundColor(Theme.Colors.primaryText)
+                                    .padding(.vertical, 8)
                                 
                                 // Quantity
                                 VStack(alignment: .leading, spacing: 4) {
@@ -1868,11 +2233,13 @@ struct AddTransactionView: View {
                                     
                                     TextField("", text: $quantity)
                                         .keyboardType(.decimalPad)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .textFieldStyle(RoundedTextFieldStyle())
                                         .font(.system(.body, design: .monospaced))
+                                        .focused($focusedField, equals: .quantity)
+                                        .submitLabel(.next)
+                                        .onSubmit {
+                                            focusedField = .pricePerUnit
+                                        }
                                         .onChange(of: quantity) { _, newValue in
                                             if let quantityValue = Double(newValue), let priceValue = Double(pricePerUnit) {
                                                 totalAmount = FormatHelper.formatCurrency(quantityValue * priceValue)
@@ -1888,11 +2255,13 @@ struct AddTransactionView: View {
                                     
                                     TextField("", text: $pricePerUnit)
                                         .keyboardType(.decimalPad)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .textFieldStyle(RoundedTextFieldStyle())
                                         .font(.system(.body, design: .monospaced))
+                                        .focused($focusedField, equals: .pricePerUnit)
+                                        .submitLabel(.done)
+                                        .onSubmit {
+                                            focusedField = nil
+                                        }
                                         .onChange(of: pricePerUnit) { _, newValue in
                                             if let quantityValue = Double(quantity), let priceValue = Double(newValue) {
                                                 totalAmount = FormatHelper.formatCurrency(quantityValue * priceValue)
@@ -1909,7 +2278,8 @@ struct AddTransactionView: View {
                                     HStack {
                                         Text("\(FormatHelper.formatCurrency(calculatedTotalAmount)) €")
                                             .font(.system(.body, design: .monospaced))
-                                            .padding()
+                                            .padding(.vertical, 12)
+                                            .padding(.horizontal, 12)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .background(Theme.Colors.secondaryBackground)
                                             .cornerRadius(Theme.Layout.cornerRadius)
@@ -1952,6 +2322,8 @@ struct AddTransactionView: View {
                             )
                             .cornerRadius(Theme.Layout.cornerRadius)
                         }
+                        .buttonStyle(PlainButtonStyle())
+                        .controlSize(.large)
                         .disabled(isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty)
                         .padding(.horizontal, Theme.Layout.padding)
                         .padding(.top, 24)
@@ -1967,6 +2339,39 @@ struct AddTransactionView: View {
                         dismiss()
                     }
                     .foregroundColor(Theme.Colors.accent)
+                }
+                
+                // Single keyboard toolbar for all fields
+                ToolbarItemGroup(placement: .keyboard) {
+                    HStack {
+                        if focusedField != .quantity {
+                            Button("Previous") {
+                                switch focusedField {
+                                case .pricePerUnit:
+                                    focusedField = .quantity
+                                default:
+                                    break
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        if focusedField != .pricePerUnit {
+                            Button("Next") {
+                                switch focusedField {
+                                case .quantity:
+                                    focusedField = .pricePerUnit
+                                default:
+                                    break
+                                }
+                            }
+                        } else {
+                            Button("Done") {
+                                focusedField = nil
+                            }
+                        }
+                    }
                 }
             }
         }
