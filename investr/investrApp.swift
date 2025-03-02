@@ -290,6 +290,72 @@ class SupabaseManager: ObservableObject {
         }
     }
     
+    func deleteTransaction(id: String) async throws -> Bool {
+        // Clear any previous errors
+        clearError()
+        
+        print("Deleting transaction with ID: \(id)")
+        
+        let response = try await client
+            .from("transactions")
+            .delete()
+            .eq("id", value: id)
+            .execute()
+        
+        print("Delete response status: \(response.status)")
+        
+        if response.status >= 200 && response.status < 300 {
+            print("Successfully deleted transaction with ID: \(id)")
+            return true
+        } else {
+            let error = NSError(
+                domain: "SupabaseManager",
+                code: response.status,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to delete transaction: Status \(response.status)"]
+            )
+            setError(error)
+            throw error
+        }
+    }
+    
+    func deleteAsset(id: String) async throws -> Bool {
+        // Clear any previous errors
+        clearError()
+        
+        print("Deleting asset with ID: \(id)")
+        
+        // First, delete all transactions associated with this asset
+        let transactionsResponse = try await client
+            .from("transactions")
+            .delete()
+            .eq("asset_id", value: id)
+            .execute()
+        
+        print("Delete transactions response status: \(transactionsResponse.status)")
+        
+        // Now delete the asset itself
+        let assetResponse = try await client
+            .from("assets")
+            .delete()
+            .eq("id", value: id)
+            .execute()
+        
+        print("Delete asset response status: \(assetResponse.status)")
+        
+        if assetResponse.status >= 200 && assetResponse.status < 300 {
+            print("Successfully deleted asset with ID: \(id)")
+            return true
+        } else {
+            let error = NSError(
+                domain: "SupabaseManager",
+                code: assetResponse.status,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to delete asset: Status \(assetResponse.status)"]
+            )
+            setError(error)
+            throw error
+        }
+    }
+    
     // MARK: - Interest Rate History Functions
     func fetchInterestRateHistory() async throws -> [InterestRateHistoryResponse] {
         do {

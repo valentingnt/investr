@@ -291,22 +291,46 @@ struct ContentView: View {
     }
     
     private var transactionsView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Layout.spacing) {
+        ZStack {
+            Theme.Colors.background.ignoresSafeArea()
+            
+            VStack(alignment: .leading, spacing: 0) {
                 if transactions.isEmpty {
-                    Text("No transactions found")
-                        .font(Theme.Typography.body)
-                        .foregroundColor(Theme.Colors.secondaryText)
-                        .padding()
-                } else {
-                    ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
-                        transactionRow(transaction: transaction)
+                    VStack {
+                        Spacer()
+                        Text("No transactions found")
+                            .font(Theme.Typography.body)
+                            .foregroundColor(Theme.Colors.secondaryText)
+                        Spacer()
                     }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List {
+                        ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
+                            transactionRow(transaction: transaction)
+                                .listRowBackground(Theme.Colors.secondaryBackground)
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        deleteTransaction(transaction: transaction)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
                 }
             }
-            .padding()
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.2))
+                }
+            }
         }
-        .background(Theme.Colors.background)
     }
     
     private func transactionRow(transaction: Transaction) -> some View {
@@ -316,15 +340,14 @@ struct ContentView: View {
                 Image(systemName: transaction.type == .buy ? "arrow.down" : "arrow.up")
                     .foregroundColor(transaction.type == .buy ? Theme.Colors.positive : Theme.Colors.negative)
                     .font(.system(size: 14, weight: .bold))
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
                     .background(
                         Circle()
                             .fill(transaction.type == .buy ? Theme.Colors.positive.opacity(0.2) : Theme.Colors.negative.opacity(0.2))
                     )
                 
-                // Asset and transaction details
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(transaction.asset?.name ?? "Unknown Asset")
+                    Text(transaction.type == .buy ? "Buy" : "Sell")
                         .font(Theme.Typography.bodyBold)
                         .foregroundColor(Theme.Colors.primaryText)
                     
@@ -335,7 +358,6 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // Transaction amount
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
                         .font(.system(.body, design: .monospaced).bold())
@@ -350,10 +372,11 @@ struct ContentView: View {
                         .animation(.smooth, value: transaction.price_per_unit)
                 }
             }
-            .padding(Theme.Layout.padding)
-            .background(Theme.Colors.secondaryBackground)
-            .cornerRadius(Theme.Layout.cornerRadius)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
         }
+        .background(Theme.Colors.secondaryBackground)
+        .cornerRadius(Theme.Layout.cornerRadius)
         .padding(.vertical, 4)
     }
     
@@ -671,16 +694,53 @@ struct ContentView: View {
             return nil
         }
     }
+    
+    private func deleteTransaction(transaction: Transaction) {
+        // Show a loading indicator
+        isLoading = true
+        
+        Task {
+            do {
+                // Delete from Supabase
+                let success = try await supabaseManager.deleteTransaction(id: transaction.id)
+                
+                if success {
+                    await MainActor.run {
+                        // Delete from SwiftData
+                        modelContext.delete(transaction)
+                        
+                        // Refresh portfolio data to update calculated values
+                        Task {
+                            await loadData()
+                        }
+                    }
+                }
+            } catch {
+                print("Error deleting transaction: \(error.localizedDescription)")
+                
+                // Show error message
+                await MainActor.run {
+                    supabaseManager.setError(error)
+                }
+            }
+            
+            await MainActor.run {
+                isLoading = false
+            }
+        }
+    }
 }
 
 // MARK: - Asset Detail View
 struct AssetDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var supabaseManager: SupabaseManager
+    @Environment(\.dismiss) private var dismiss
     
     // Instead of a simple let asset, we'll use @State so we can update it
     @State private var asset: AssetViewModel
     @State private var isRefreshing = false
+    @State private var showDeleteAlert = false
     
     // Get fresh transactions from SwiftData
     @Query private var transactions: [Transaction]
@@ -700,7 +760,13 @@ struct AssetDetailView: View {
         }
         
         // Apply the predicate to the @Query using a FetchDescriptor
-        _transactions = Query(FetchDescriptor<Transaction>(predicate: predicate, sortBy: [SortDescriptor(\.transaction_date, order: .reverse)]))
+        // Breaking down the complex initialization to help the compiler
+        let sortDescriptor = SortDescriptor(\Transaction.transaction_date, order: .reverse)
+        let fetchDescriptor = FetchDescriptor<Transaction>(
+            predicate: predicate,
+            sortBy: [sortDescriptor]
+        )
+        _transactions = Query(fetchDescriptor)
         
         // Print initialization info
         print("🏗️ Initializing AssetDetailView for \(asset.name) with ID \(asset.id)")
@@ -865,79 +931,80 @@ struct AssetDetailView: View {
                                 }
                             }
                         }
+                    }
+                    
+                    Divider()
+                        .background(Theme.Colors.separator)
+                        .padding(.vertical, 4)
+                    
+                    // Transactions Section
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Section Header
+                        Text("Transaction History")
+                            .font(Theme.Typography.title3)
+                            .foregroundColor(Theme.Colors.primaryText)
                         
-                        Divider()
-                            .background(Theme.Colors.separator)
-                            .padding(.vertical, 4)
-                        
-                        // Transactions Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            // Section Header
-                            Text("Transaction History")
-                                .font(Theme.Typography.title3)
-                                .foregroundColor(Theme.Colors.primaryText)
-                            
-                            if transactions.isEmpty {
-                                Text("No transactions found for this asset")
-                                    .font(Theme.Typography.body)
-                                    .foregroundColor(Theme.Colors.secondaryText)
-                                    .padding(.top, 8)
-                            } else {
-                                // Transaction List
-                                ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
-                                    VStack(spacing: 0) {
-                                        HStack {
-                                            // Transaction type indicator
-                                            Image(systemName: transaction.type == .buy ? "arrow.down" : "arrow.up")
-                                                .foregroundColor(transaction.type == .buy ? Theme.Colors.positive : Theme.Colors.negative)
-                                                .font(.system(size: 14, weight: .bold))
-                                                .frame(width: 28, height: 28)
-                                                .background(
-                                                    Circle()
-                                                        .fill(transaction.type == .buy ? Theme.Colors.positive.opacity(0.2) : Theme.Colors.negative.opacity(0.2))
-                                                )
+                        if transactions.isEmpty {
+                            Text("No transactions found for this asset")
+                                .font(Theme.Typography.body)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                                .padding(.top, 8)
+                        } else {
+                            // Transaction List
+                            ForEach(transactions.sorted(by: { $0.transaction_date > $1.transaction_date })) { transaction in
+                                VStack(spacing: 0) {
+                                    HStack {
+                                        // Transaction type indicator
+                                        Image(systemName: transaction.type == .buy ? "arrow.down" : "arrow.up")
+                                            .foregroundColor(transaction.type == .buy ? Theme.Colors.positive : Theme.Colors.negative)
+                                            .font(.system(size: 14, weight: .bold))
+                                            .frame(width: 28, height: 28)
+                                            .background(
+                                                Circle()
+                                                    .fill(transaction.type == .buy ? Theme.Colors.positive.opacity(0.2) : Theme.Colors.negative.opacity(0.2))
+                                            )
+                                        
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(transaction.type == .buy ? "Buy" : "Sell")
+                                                .font(Theme.Typography.bodyBold)
+                                                .foregroundColor(Theme.Colors.primaryText)
                                             
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text(transaction.type == .buy ? "Buy" : "Sell")
-                                                    .font(Theme.Typography.bodyBold)
-                                                    .foregroundColor(Theme.Colors.primaryText)
-                                                
-                                                Text(transaction.transaction_date.formatted(date: .abbreviated, time: .shortened))
-                                                    .font(Theme.Typography.caption)
-                                                    .foregroundColor(Theme.Colors.secondaryText)
-                                            }
-                                            
-                                            Spacer()
-                                            
-                                            VStack(alignment: .trailing, spacing: 4) {
-                                                Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
-                                                    .font(.system(.body, design: .monospaced).bold())
-                                                    .foregroundColor(Theme.Colors.primaryText)
-                                                    .contentTransition(.numericText())
-                                                    .animation(.smooth, value: transaction.quantity)
-                                                
-                                                Text("\(FormatHelper.formatCurrency(transaction.price_per_unit)) € per unit")
-                                                    .font(.system(.caption, design: .monospaced))
-                                                    .foregroundColor(Theme.Colors.secondaryText)
-                                                    .contentTransition(.numericText())
-                                                    .animation(.smooth, value: transaction.price_per_unit)
-                                            }
+                                            Text(transaction.transaction_date.formatted(date: .abbreviated, time: .shortened))
+                                                .font(Theme.Typography.caption)
+                                                .foregroundColor(Theme.Colors.secondaryText)
                                         }
-                                        .padding(.vertical, 12)
-                                        .padding(.horizontal, 8)
+                                        
+                                        Spacer()
+                                        
+                                        VStack(alignment: .trailing, spacing: 4) {
+                                            Text(transaction.type == .buy ? "+\(FormatHelper.formatQuantity(transaction.quantity))" : "-\(FormatHelper.formatQuantity(transaction.quantity))")
+                                                .font(.system(.body, design: .monospaced).bold())
+                                                .foregroundColor(Theme.Colors.primaryText)
+                                                .contentTransition(.numericText())
+                                                .animation(.smooth, value: transaction.quantity)
+                                            
+                                            Text("\(FormatHelper.formatCurrency(transaction.price_per_unit)) € per unit")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundColor(Theme.Colors.secondaryText)
+                                                .contentTransition(.numericText())
+                                                .animation(.smooth, value: transaction.price_per_unit)
+                                        }
                                     }
-                                    .background(Theme.Colors.secondaryBackground)
-                                    .cornerRadius(Theme.Layout.cornerRadius)
-                                    .padding(.vertical, 4)
+                                    .padding(.vertical, 12)
+                                    .padding(.horizontal, 8)
                                 }
+                                .background(Theme.Colors.secondaryBackground)
+                                .cornerRadius(Theme.Layout.cornerRadius)
+                                .padding(.vertical, 4)
                             }
                         }
                     }
-                    .padding(16)
-                    .background(Theme.Colors.secondaryBackground)
-                    .cornerRadius(16)
                 }
                 .padding(16)
+                .background(Theme.Colors.secondaryBackground)
+                .cornerRadius(16)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
             .refreshable {
                 await refreshAssetData()
@@ -971,16 +1038,37 @@ struct AssetDetailView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task {
-                        await refreshAssetData()
+                HStack(spacing: 16) {
+                    // Delete button
+                    Button {
+                        showDeleteAlert = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundColor(Theme.Colors.negative)
                     }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .symbolEffect(.pulse, options: .speed(1.5), value: isRefreshing)
+                    
+                    // Refresh button
+                    Button {
+                        Task {
+                            await refreshAssetData()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .symbolEffect(.pulse, options: .speed(1.5), value: isRefreshing)
+                    }
+                    .disabled(isRefreshing)
                 }
-                .disabled(isRefreshing)
             }
+        }
+        .alert("Delete Asset", isPresented: $showDeleteAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    await deleteAsset()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete this asset? This will also delete all associated transactions and cannot be undone.")
         }
     }
     
@@ -1174,6 +1262,47 @@ struct AssetDetailView: View {
             isRefreshing = false
         }
     }
+    
+    // Function to delete an asset
+    private func deleteAsset() async {
+        // Set refreshing state
+        isRefreshing = true
+        
+        Task {
+            do {
+                // Delete from Supabase
+                try await supabaseManager.deleteAsset(id: assetId)
+                
+                // If we reach here, deletion was successful
+                await MainActor.run {
+                    // Delete the asset from SwiftData
+                    if let assetToDelete = try? modelContext.fetch(FetchDescriptor<Asset>(predicate: #Predicate { $0.id == assetId })).first {
+                        modelContext.delete(assetToDelete)
+                        
+                        // Delete associated transactions
+                        let transactionsToDelete = transactions
+                        for transaction in transactionsToDelete {
+                            modelContext.delete(transaction)
+                        }
+                        
+                        // Save changes
+                        try? modelContext.save()
+                        
+                        // Navigate back
+                        dismiss()
+                    }
+                }
+            } catch {
+                print("Error deleting asset: \(error.localizedDescription)")
+                
+                // Show error message
+                await MainActor.run {
+                    supabaseManager.setError(error)
+                    isRefreshing = false
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Add Asset View
@@ -1270,10 +1399,10 @@ struct AddAssetView: View {
                                                     }
                                                 }
                                             }
-                                            .padding()
-                                            .background(Theme.Colors.secondaryBackground)
-                                            .cornerRadius(Theme.Layout.cornerRadius)
                                         }
+                                        .padding()
+                                        .background(Theme.Colors.secondaryBackground)
+                                        .cornerRadius(Theme.Layout.cornerRadius)
                                     }
                                 }
                                 .padding(.horizontal, Theme.Layout.padding)
@@ -1602,150 +1731,130 @@ struct AddTransactionView: View {
                                 .padding(.horizontal, Theme.Layout.padding)
                             }
                         }
+                    }
+                    
+                    // Transaction Details
+                    VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
+                        Text("Transaction Details")
+                            .font(Theme.Typography.title3)
+                            .foregroundColor(Theme.Colors.primaryText)
+                            .padding(.horizontal, Theme.Layout.padding)
+                            .padding(.top, 8)
                         
-                        // Transaction Details
-                        VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
-                            Text("Transaction Details")
-                                .font(Theme.Typography.title3)
-                                .foregroundColor(Theme.Colors.primaryText)
-                                .padding(.horizontal, Theme.Layout.padding)
-                                .padding(.top, 8)
+                        VStack(spacing: Theme.Layout.spacing) {
+                            // Transaction Type
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Type")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                
+                                Picker("", selection: $transactionType) {
+                                    Text("Buy").tag(TransactionType.buy)
+                                    Text("Sell").tag(TransactionType.sell)
+                                }
+                                .pickerStyle(SegmentedPickerStyle())
+                                .padding(.vertical, 4)
+                            }
                             
-                            VStack(spacing: Theme.Layout.spacing) {
-                                // Transaction Type
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Type")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    
-                                    Picker("", selection: $transactionType) {
-                                        Text("Buy").tag(TransactionType.buy)
-                                        Text("Sell").tag(TransactionType.sell)
-                                    }
-                                    .pickerStyle(SegmentedPickerStyle())
-                                    .padding(.vertical, 4)
-                                }
+                            // Transaction Date
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Date")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
                                 
-                                // Transaction Date
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Date")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    
-                                    DatePicker("", selection: $transactionDate, displayedComponents: .date)
-                                        .datePickerStyle(.compact)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
-                                }
-                                
-                                // Quantity
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Quantity")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    
-                                    TextField("", text: $quantity)
-                                        .keyboardType(.decimalPad)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
-                                        .onChange(of: quantity) { _, newValue in
-                                            if let quantityValue = Double(newValue), let priceValue = Double(pricePerUnit) {
-                                                totalAmount = "\(quantityValue * priceValue)"
-                                            }
-                                        }
-                                }
-                                
-                                // Price per Unit
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Price per Unit")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    
-                                    TextField("", text: $pricePerUnit)
-                                        .keyboardType(.decimalPad)
-                                        .padding()
-                                        .background(Theme.Colors.secondaryBackground)
-                                        .cornerRadius(Theme.Layout.cornerRadius)
-                                        .foregroundColor(Theme.Colors.primaryText)
-                                        .onChange(of: pricePerUnit) { _, newValue in
-                                            if let quantityValue = Double(quantity), let priceValue = Double(newValue) {
-                                                totalAmount = "\(quantityValue * priceValue)"
-                                            }
-                                        }
-                                }
-                                
-                                // Total Amount
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Total Amount")
-                                        .font(Theme.Typography.caption)
-                                        .foregroundColor(Theme.Colors.secondaryText)
-                                    
-                                    HStack {
-                                        Spacer()
-                                        Text("\(FormatHelper.formatCurrency(calculatedTotalAmount)) €")
-                                            .font(.system(.title3, design: .monospaced).bold())
-                                            .foregroundColor(Theme.Colors.primaryText)
-                                            .contentTransition(.numericText())
-                                            .animation(.smooth, value: calculatedTotalAmount)
-                                    }
+                                DatePicker("", selection: $transactionDate, displayedComponents: .date)
+                                    .datePickerStyle(.compact)
                                     .padding()
                                     .background(Theme.Colors.secondaryBackground)
                                     .cornerRadius(Theme.Layout.cornerRadius)
-                                }
+                                    .foregroundColor(Theme.Colors.primaryText)
                             }
-                            .padding(.horizontal, Theme.Layout.padding)
+                            
+                            // Quantity
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Quantity")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                
+                                TextField("", text: $quantity)
+                                    .keyboardType(.decimalPad)
+                                    .padding()
+                                    .background(Theme.Colors.secondaryBackground)
+                                    .cornerRadius(Theme.Layout.cornerRadius)
+                                    .foregroundColor(Theme.Colors.primaryText)
+                                    .onChange(of: quantity) { _, newValue in
+                                        if let quantityValue = Double(newValue), let priceValue = Double(pricePerUnit) {
+                                            totalAmount = "\(quantityValue * priceValue)"
+                                        }
+                                    }
+                            }
                         }
                         
-                        // Error message
-                        if let errorMessage = errorMessage {
-                            Text(errorMessage)
+                        // Price per Unit
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Price per Unit")
                                 .font(Theme.Typography.caption)
-                                .foregroundColor(Theme.Colors.negative)
-                                .padding(.horizontal, Theme.Layout.padding)
-                                .padding(.top, Theme.Layout.smallSpacing)
-                        }
-                        
-                        // Add Button
-                        Button(action: addTransaction) {
-                            HStack {
-                                if isAddingTransaction {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                        .tint(Theme.Colors.primaryText)
-                                } else {
-                                    Text("Add Transaction")
-                                        .font(Theme.Typography.bodyBold)
-                                        .foregroundColor(Theme.Colors.primaryText)
+                                .foregroundColor(Theme.Colors.secondaryText)
+                                
+                            TextField("", text: $pricePerUnit)
+                                .keyboardType(.decimalPad)
+                                .padding()
+                                .background(Theme.Colors.secondaryBackground)
+                                .cornerRadius(Theme.Layout.cornerRadius)
+                                .foregroundColor(Theme.Colors.primaryText)
+                                .onChange(of: pricePerUnit) { _, newValue in
+                                    if let quantityValue = Double(quantity), let priceValue = Double(newValue) {
+                                        totalAmount = "\(quantityValue * priceValue)"
+                                    }
                                 }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(
-                                (isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty) ? 
-                                    Theme.Colors.secondaryBackground : Theme.Colors.accent
-                            )
-                            .cornerRadius(Theme.Layout.cornerRadius)
                         }
-                        .disabled(isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty)
-                        .padding(.horizontal, Theme.Layout.padding)
-                        .padding(.top, 24)
                     }
-                    .padding(.vertical, Theme.Layout.padding)
                 }
+                .padding(.horizontal, Theme.Layout.padding)
             }
-            .navigationTitle("Add Transaction")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
+            
+            // Error message
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+                    .font(Theme.Typography.caption)
+                    .foregroundColor(Theme.Colors.negative)
+                    .padding(.horizontal, Theme.Layout.padding)
+                    .padding(.top, Theme.Layout.smallSpacing)
+            }
+            
+            // Add Button
+            Button(action: addTransaction) {
+                HStack {
+                    if isAddingTransaction {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                            .tint(Theme.Colors.primaryText)
+                    } else {
+                        Text("Add Transaction")
+                            .font(Theme.Typography.bodyBold)
+                            .foregroundColor(Theme.Colors.primaryText)
                     }
-                    .foregroundColor(Theme.Colors.accent)
                 }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    (isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty) ? 
+                        Theme.Colors.secondaryBackground : Theme.Colors.accent
+                )
+                .cornerRadius(Theme.Layout.cornerRadius)
+            }
+            .disabled(isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty)
+            .padding(.horizontal, Theme.Layout.padding)
+            .padding(.top, 24)
+        }
+        .navigationTitle("Add Transaction")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .foregroundColor(Theme.Colors.accent)
             }
         }
     }
