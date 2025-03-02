@@ -154,6 +154,85 @@ struct ContentView: View {
                                 .tint(Theme.Colors.accent)
                         }
                     }
+                    
+                    Divider()
+                        .background(Theme.Colors.separator)
+                        .padding(.vertical, 4)
+                    
+                    // Portfolio Details Grid
+                    HStack(alignment: .top, spacing: Theme.Layout.spacing * 2) {
+                        // Left Column - Gross Assets and Invested
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Gross Assets (PATRIMOINE BRUT)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("PATRIMOINE BRUT")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                
+                                Text("\(FormatHelper.formatCurrency(portfolioValue)) €")
+                                    .font(.system(.body, design: .monospaced).bold())
+                                    .foregroundColor(Theme.Colors.primaryText)
+                                    .contentTransition(.numericText())
+                                    .animation(.smooth, value: portfolioValue)
+                            }
+                            
+                            // Invested (INVESTI)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("INVESTI")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                
+                                let totalInvested = calculateTotalInvested()
+                                Text("\(FormatHelper.formatCurrency(totalInvested)) €")
+                                    .font(.system(.body, design: .monospaced).bold())
+                                    .foregroundColor(Theme.Colors.primaryText)
+                                    .contentTransition(.numericText())
+                                    .animation(.smooth, value: totalInvested)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Right Column - Performance and Profit/Loss
+                        VStack(alignment: .trailing, spacing: 12) {
+                            // Performance
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("PERFORMANCE")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                
+                                let totalInvested = calculateTotalInvested()
+                                let performancePercentage = totalInvested > 0 ? ((portfolioValue - totalInvested) / totalInvested) * 100 : 0
+                                
+                                HStack(spacing: 2) {
+                                    if performancePercentage != 0 {
+                                        Image(systemName: performancePercentage >= 0 ? "arrow.up" : "arrow.down")
+                                    }
+                                    Text("\(FormatHelper.formatPercentage(performancePercentage))")
+                                        .font(.system(.body, design: .monospaced).bold())
+                                        .contentTransition(.numericText())
+                                        .animation(.smooth, value: performancePercentage)
+                                }
+                                .foregroundColor(performancePercentage >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                            }
+                            
+                            // Profit/Loss (PLUS/MOINS VALUE)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("PLUS/MOINS VALUE")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundColor(Theme.Colors.secondaryText)
+                                
+                                let totalInvested = calculateTotalInvested()
+                                let profitLoss = portfolioValue - totalInvested
+                                
+                                Text("\(FormatHelper.formatCurrency(profitLoss)) €")
+                                    .font(.system(.body, design: .monospaced).bold())
+                                    .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                    .contentTransition(.numericText())
+                                    .animation(.smooth, value: profitLoss)
+                            }
+                        }
+                    }
                 }
                 .padding(16)
                 .background(Theme.Colors.secondaryBackground)
@@ -728,6 +807,18 @@ struct ContentView: View {
                 isLoading = false
             }
         }
+    }
+    
+    private func calculateTotalInvested() -> Double {
+        // Calculate the total invested amount across all assets
+        let service = BaseAssetService()
+        let totalInvested = portfolioItems.reduce(0.0) { sum, item in
+            // For each asset, calculate its total cost from transactions
+            let assetTransactions = transactions.filter { $0.asset_id == item.id }
+            let assetCost = service.calculateTotalCost(transactions: assetTransactions)
+            return sum + assetCost
+        }
+        return totalInvested
     }
 }
 
@@ -1699,7 +1790,7 @@ struct AddTransactionView: View {
                 ScrollView {
                     VStack(spacing: Theme.Layout.spacing) {
                         // Asset Selection
-                        VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
+                        VStack(alignment: .leading, spacing: Theme.Layout.spacing) {
                             Text("Asset")
                                 .font(Theme.Typography.title3)
                                 .foregroundColor(Theme.Colors.primaryText)
@@ -1728,133 +1819,155 @@ struct AddTransactionView: View {
                                 .padding()
                                 .background(Theme.Colors.secondaryBackground)
                                 .cornerRadius(Theme.Layout.cornerRadius)
-                                .padding(.horizontal, Theme.Layout.padding)
                             }
-                        }
-                    }
-                    
-                    // Transaction Details
-                    VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
-                        Text("Transaction Details")
-                            .font(Theme.Typography.title3)
-                            .foregroundColor(Theme.Colors.primaryText)
                             .padding(.horizontal, Theme.Layout.padding)
-                            .padding(.top, 8)
-                        
-                        VStack(spacing: Theme.Layout.spacing) {
-                            // Transaction Type
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Type")
-                                    .font(Theme.Typography.caption)
-                                    .foregroundColor(Theme.Colors.secondaryText)
-                                
-                                Picker("", selection: $transactionType) {
-                                    Text("Buy").tag(TransactionType.buy)
-                                    Text("Sell").tag(TransactionType.sell)
-                                }
-                                .pickerStyle(SegmentedPickerStyle())
-                                .padding(.vertical, 4)
-                            }
-                            
-                            // Transaction Date
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Date")
-                                    .font(Theme.Typography.caption)
-                                    .foregroundColor(Theme.Colors.secondaryText)
-                                
-                                DatePicker("", selection: $transactionDate, displayedComponents: .date)
-                                    .datePickerStyle(.compact)
-                                    .padding()
-                                    .background(Theme.Colors.secondaryBackground)
-                                    .cornerRadius(Theme.Layout.cornerRadius)
-                                    .foregroundColor(Theme.Colors.primaryText)
-                            }
-                            
-                            // Quantity
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Quantity")
-                                    .font(Theme.Typography.caption)
-                                    .foregroundColor(Theme.Colors.secondaryText)
-                                
-                                TextField("", text: $quantity)
-                                    .keyboardType(.decimalPad)
-                                    .padding()
-                                    .background(Theme.Colors.secondaryBackground)
-                                    .cornerRadius(Theme.Layout.cornerRadius)
-                                    .foregroundColor(Theme.Colors.primaryText)
-                                    .onChange(of: quantity) { _, newValue in
-                                        if let quantityValue = Double(newValue), let priceValue = Double(pricePerUnit) {
-                                            totalAmount = "\(quantityValue * priceValue)"
-                                        }
-                                    }
-                            }
                         }
                         
-                        // Price per Unit
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Price per Unit")
-                                .font(Theme.Typography.caption)
-                                .foregroundColor(Theme.Colors.secondaryText)
-                                
-                            TextField("", text: $pricePerUnit)
-                                .keyboardType(.decimalPad)
-                                .padding()
-                                .background(Theme.Colors.secondaryBackground)
-                                .cornerRadius(Theme.Layout.cornerRadius)
+                        // Transaction Details
+                        VStack(alignment: .leading, spacing: Theme.Layout.spacing) {
+                            Text("Transaction Details")
+                                .font(Theme.Typography.title3)
                                 .foregroundColor(Theme.Colors.primaryText)
-                                .onChange(of: pricePerUnit) { _, newValue in
-                                    if let quantityValue = Double(quantity), let priceValue = Double(newValue) {
-                                        totalAmount = "\(quantityValue * priceValue)"
+                                .padding(.horizontal, Theme.Layout.padding)
+                                .padding(.top, 8)
+                            
+                            VStack(spacing: Theme.Layout.spacing) {
+                                // Transaction Type
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Type")
+                                        .font(Theme.Typography.caption)
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                    
+                                    Picker("", selection: $transactionType) {
+                                        Text("Buy").tag(TransactionType.buy)
+                                        Text("Sell").tag(TransactionType.sell)
+                                    }
+                                    .pickerStyle(SegmentedPickerStyle())
+                                    .padding(.vertical, 4)
+                                }
+                                
+                                // Transaction Date
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Date")
+                                        .font(Theme.Typography.caption)
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                    
+                                    DatePicker("", selection: $transactionDate, displayedComponents: .date)
+                                        .datePickerStyle(.compact)
+                                        .padding()
+                                        .background(Theme.Colors.secondaryBackground)
+                                        .cornerRadius(Theme.Layout.cornerRadius)
+                                        .foregroundColor(Theme.Colors.primaryText)
+                                }
+                                
+                                // Quantity
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Quantity *")
+                                        .font(Theme.Typography.caption)
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                    
+                                    TextField("", text: $quantity)
+                                        .keyboardType(.decimalPad)
+                                        .padding()
+                                        .background(Theme.Colors.secondaryBackground)
+                                        .cornerRadius(Theme.Layout.cornerRadius)
+                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .font(.system(.body, design: .monospaced))
+                                        .onChange(of: quantity) { _, newValue in
+                                            if let quantityValue = Double(newValue), let priceValue = Double(pricePerUnit) {
+                                                totalAmount = FormatHelper.formatCurrency(quantityValue * priceValue)
+                                            }
+                                        }
+                                }
+                                
+                                // Price per Unit
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Price per Unit *")
+                                        .font(Theme.Typography.caption)
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                    
+                                    TextField("", text: $pricePerUnit)
+                                        .keyboardType(.decimalPad)
+                                        .padding()
+                                        .background(Theme.Colors.secondaryBackground)
+                                        .cornerRadius(Theme.Layout.cornerRadius)
+                                        .foregroundColor(Theme.Colors.primaryText)
+                                        .font(.system(.body, design: .monospaced))
+                                        .onChange(of: pricePerUnit) { _, newValue in
+                                            if let quantityValue = Double(quantity), let priceValue = Double(newValue) {
+                                                totalAmount = FormatHelper.formatCurrency(quantityValue * priceValue)
+                                            }
+                                        }
+                                }
+                                
+                                // Total Amount (calculated)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Total Amount")
+                                        .font(Theme.Typography.caption)
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                    
+                                    HStack {
+                                        Text("\(FormatHelper.formatCurrency(calculatedTotalAmount)) €")
+                                            .font(.system(.body, design: .monospaced))
+                                            .padding()
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .background(Theme.Colors.secondaryBackground)
+                                            .cornerRadius(Theme.Layout.cornerRadius)
+                                            .foregroundColor(Theme.Colors.primaryText)
+                                            .contentTransition(.numericText())
+                                            .animation(.smooth, value: calculatedTotalAmount)
                                     }
                                 }
+                            }
+                            .padding(.horizontal, Theme.Layout.padding)
                         }
+                        
+                        // Error message
+                        if let errorMessage = errorMessage {
+                            Text(errorMessage)
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(Theme.Colors.negative)
+                                .padding(.horizontal, Theme.Layout.padding)
+                                .padding(.top, Theme.Layout.smallSpacing)
+                        }
+                        
+                        // Add Button
+                        Button(action: addTransaction) {
+                            HStack {
+                                if isAddingTransaction {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                        .tint(Theme.Colors.primaryText)
+                                } else {
+                                    Text("Add Transaction")
+                                        .font(Theme.Typography.bodyBold)
+                                        .foregroundColor(Theme.Colors.primaryText)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(
+                                (isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty) ? 
+                                    Theme.Colors.secondaryBackground : Theme.Colors.accent
+                            )
+                            .cornerRadius(Theme.Layout.cornerRadius)
+                        }
+                        .disabled(isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty)
+                        .padding(.horizontal, Theme.Layout.padding)
+                        .padding(.top, 24)
                     }
+                    .padding(.vertical, Theme.Layout.padding)
                 }
-                .padding(.horizontal, Theme.Layout.padding)
             }
-            
-            // Error message
-            if let errorMessage = errorMessage {
-                Text(errorMessage)
-                    .font(Theme.Typography.caption)
-                    .foregroundColor(Theme.Colors.negative)
-                    .padding(.horizontal, Theme.Layout.padding)
-                    .padding(.top, Theme.Layout.smallSpacing)
-            }
-            
-            // Add Button
-            Button(action: addTransaction) {
-                HStack {
-                    if isAddingTransaction {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle())
-                            .tint(Theme.Colors.primaryText)
-                    } else {
-                        Text("Add Transaction")
-                            .font(Theme.Typography.bodyBold)
-                            .foregroundColor(Theme.Colors.primaryText)
+            .navigationTitle("Add Transaction")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
                     }
+                    .foregroundColor(Theme.Colors.accent)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(
-                    (isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty) ? 
-                        Theme.Colors.secondaryBackground : Theme.Colors.accent
-                )
-                .cornerRadius(Theme.Layout.cornerRadius)
-            }
-            .disabled(isAddingTransaction || selectedAsset == nil || quantity.isEmpty || pricePerUnit.isEmpty)
-            .padding(.horizontal, Theme.Layout.padding)
-            .padding(.top, 24)
-        }
-        .navigationTitle("Add Transaction")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .foregroundColor(Theme.Colors.accent)
             }
         }
     }
