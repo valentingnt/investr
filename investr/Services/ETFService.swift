@@ -70,9 +70,14 @@ final class ETFService: BaseAssetService, AssetServiceProtocol {
         request.setValue("apidojo-yahoo-finance-v1.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
         request.timeoutInterval = 15 // Increased timeout for reliability
         
-        guard let rapidApiKey = ProcessInfo.processInfo.environment["RAPIDAPI_KEY"],
-              !rapidApiKey.isEmpty else {
-            throw NSError(domain: "ETFService", code: 1, userInfo: [NSLocalizedDescriptionKey: "RAPIDAPI_KEY environment variable is not set"])
+        // Get the API key from the configuration manager
+        let rapidApiKey = ConfigurationManager.shared.rapidAPIKey
+        
+        // Check if we have a valid API key
+        if !ConfigurationManager.shared.hasValidRapidAPIKey {
+            print("Warning: No valid RapidAPI key found for ETFService. Using mock data.")
+            // Return mock data instead of failing
+            return PriceData(price: 0, change24h: 0)
         }
         
         request.setValue(rapidApiKey, forHTTPHeaderField: "X-RapidAPI-Key")

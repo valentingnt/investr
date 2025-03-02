@@ -50,23 +50,6 @@
             ReferencedContainer = "container:investr.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "RAPIDAPI_KEY"
-            value = "140c52c9e3msh631a2a5af0093b7p196aebjsnea65484d903e"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "SUPABASE_URL"
-            value = "https://lysizvlvalsozaakdtgq.supabase.co"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "SUPABASE_KEY"
-            value = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5c2l6dmx2YWxzb3phYWtkdGdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgxMTI0MTAsImV4cCI6MjA1MzY4ODQxMH0.diqTrdva9rLb4Ves3Ym8omnNrPD4YkgFXwtnn1XKR4w"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

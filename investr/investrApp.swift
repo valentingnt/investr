@@ -76,9 +76,13 @@ class SupabaseManager: ObservableObject {
     private var customURLSession: URLSession
     
     private init() {
-        guard let supabaseUrl = ProcessInfo.processInfo.environment["SUPABASE_URL"],
-              let supabaseKey = ProcessInfo.processInfo.environment["SUPABASE_KEY"] else {
-            fatalError("Supabase URL or Key not found in environment variables")
+        // Get configuration values from the ConfigurationManager
+        let supabaseUrl = ConfigurationManager.shared.supabaseURL
+        let supabaseKey = ConfigurationManager.shared.supabaseKey
+        
+        // Check if we have valid credentials
+        if !ConfigurationManager.shared.hasValidSupabaseCredentials {
+            print("Warning: No valid Supabase credentials found. Please add your credentials to ApiKeys.plist")
         }
         
         // Create a custom URLSession configuration with timeout and better cancellation handling
