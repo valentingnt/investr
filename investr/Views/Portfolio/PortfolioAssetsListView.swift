@@ -14,50 +14,76 @@ struct PortfolioAssetsListView: View {
                 // Portfolio Summary Card
                 VStack(alignment: .leading, spacing: Theme.Layout.spacing) {
                     HStack {
-                        Text("Total Portfolio Value")
-                            .font(Theme.Typography.caption)
+                        Text("TOTAL ASSETS")
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(Theme.Colors.secondaryText)
-                        
-                        Spacer()
-                        
-                        // Integrated Toggle - small and discreet
-                        Button(action: {
-                            withAnimation(.spring(duration: 0.5)) {
-                                displayPerformanceAsPercentage.toggle()
-                            }
-                        }) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Theme.Colors.accent.opacity(0.1))
-                                    .frame(width: 32, height: 32)
-                                
-                                Image(systemName: displayPerformanceAsPercentage ? "percent" : "eurosign.circle")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Theme.Colors.accent)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .symbolEffect(.bounce, options: .speed(1.5), value: displayPerformanceAsPercentage)
-                            }
-                        }
-                        .transaction { transaction in
-                            transaction.animation = .spring(duration: 0.4)
-                        }
-                    }
-                    
-                    HStack {
-                        Text("\(FormatHelper.formatCurrency(portfolioValue)) €")
-                            .font(.system(size: 28, weight: .bold, design: .monospaced))
-                            .foregroundColor(Theme.Colors.primaryText)
-                            .contentTransition(.numericText())
-                            .transaction { transaction in
-                                transaction.animation = .spring(duration: 0.4, bounce: 0.2)
-                            }
                         
                         if isLoading || isRefreshing {
                             ProgressView()
-                                .padding(.leading, 8)
+                                .scaleEffect(0.8)
+                        }
+                    }
+                    
+                    Text("\(FormatHelper.formatCurrency(portfolioValue)) €")
+                        .font(.system(size: 40, weight: .bold, design: .monospaced))
+                        .foregroundColor(Theme.Colors.primaryText)
+                        .contentTransition(.numericText())
+                        .transaction { transaction in
+                            transaction.animation = .spring(duration: 0.4, bounce: 0.2)
+                        }
+                    
+                    Divider()
+                        .background(Theme.Colors.separator)
+                        .padding(.vertical, 8)
+                    
+                    // Portfolio Metrics - Now in vertical layout
+                    VStack(spacing: Theme.Layout.spacing) {
+                        // Invested Amount
+                        HStack {
+                            Text("INVESTED")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            
+                            Spacer()
+                            
+                            let totalInvested = calculateTotalInvested()
+                            Text("\(FormatHelper.formatCurrency(totalInvested)) €")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundColor(Theme.Colors.primaryText)
                         }
                         
-                        Spacer()
+                        // Performance
+                        HStack {
+                            Text("PERFORMANCE")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            
+                            Spacer()
+                            
+                            let performance = calculatePerformance()
+                            HStack(spacing: 4) {
+                                Image(systemName: performance >= 0 ? "arrow.up" : "arrow.down")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(performance >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                Text("\(FormatHelper.formatPercent(performance))")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundColor(performance >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                            }
+                        }
+                        
+                        // Profit/Loss
+                        HStack {
+                            Text("PROFIT/LOSS")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(Theme.Colors.secondaryText)
+                            
+                            Spacer()
+                            
+                            let profitLoss = portfolioValue - calculateTotalInvested()
+                            Text("\(FormatHelper.formatCurrency(profitLoss)) €")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                        }
                     }
                 }
                 .cardStyle()
@@ -154,6 +180,28 @@ struct PortfolioAssetsListView: View {
     
     private var soldOutAssets: [AssetViewModel] {
         portfolioItems.filter { $0.quantity == 0 }
+    }
+    
+    // Helper functions for portfolio metrics
+    private func calculateTotalInvested() -> Double {
+        // Only count buy transactions for active positions
+        portfolioItems.reduce(0) { total, asset in
+            if asset.quantity > 0 {
+                // For active positions, use quantity * avgPurchasePrice
+                return total + (asset.quantity * asset.avgPurchasePrice)
+            } else {
+                // For closed positions, don't include in total invested
+                return total
+            }
+        }
+    }
+    
+    private func calculatePerformance() -> Double {
+        let totalInvested = calculateTotalInvested()
+        if totalInvested > 0 {
+            return ((portfolioValue - totalInvested) / totalInvested) * 100
+        }
+        return 0
     }
 }
 

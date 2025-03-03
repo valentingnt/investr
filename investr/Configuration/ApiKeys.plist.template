@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Supabase Credentials -->
+    <key>SUPABASE_URL</key>
+    <string>YOUR_SUPABASE_URL_HERE</string>
+    <key>SUPABASE_KEY</key>
+    <string>YOUR_SUPABASE_KEY_HERE</string>
+    
+    <!-- Legacy API Key (kept for backwards compatibility) -->
+    <key>RAPIDAPI_KEY</key>
+    <string>YOUR_RAPIDAPI_KEY_HERE</string>
+    
+    <!-- API Keys for the various providers can also be set from the APISettingsView -->
+    <!-- You don't need keys for all providers, just at least one for crypto and one for ETFs -->
+    
+    <!-- Crypto Data API Keys -->
+    <key>CRYPTOCOMPARE_API_KEY</key>
+    <string>YOUR_CRYPTOCOMPARE_API_KEY_HERE</string>
+    
+    <key>COINGECKO_API_KEY</key>
+    <string>YOUR_COINGECKO_API_KEY_HERE</string>
+    
+    <key>COINAPI_KEY</key>
+    <string>YOUR_COINAPI_KEY_HERE</string>
+    
+    <!-- ETF & Stock Data API Keys -->
+    <key>FMP_API_KEY</key>
+    <string>YOUR_FINANCIAL_MODELING_PREP_API_KEY_HERE</string>
+    
+    <key>ALPHAVANTAGE_API_KEY</key>
+    <string>YOUR_ALPHAVANTAGE_API_KEY_HERE</string>
+    
+    <key>TWELVEDATA_API_KEY</key>
+    <string>YOUR_TWELVEDATA_API_KEY_HERE</string>
+</dict>
+</plist> 

@@ -11,7 +11,7 @@ struct Theme {
         static let secondaryBackground = Color(UIColor { traitCollection in
             return traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "353535") : UIColor(hex: "f5f3ef")
         })
-        static let accent = Color(hex: "a5909f") // Mauve/dusty rose accent
+        static let accent = Color(hex: "7ca2c5") // RGB : 124 162 197
         
         // Text colors
         static let primaryText = Color(UIColor { traitCollection in

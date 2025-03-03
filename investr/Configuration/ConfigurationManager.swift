@@ -66,22 +66,22 @@ struct ConfigurationManager {
     // MARK: - Helper Methods
     
     /// Get a string value from the configuration
-    private func string(for key: String) -> String? {
+    func string(for key: String) -> String? {
         return configurationDictionary[key] as? String
     }
     
     /// Get a boolean value from the configuration
-    private func bool(for key: String) -> Bool? {
+    func bool(for key: String) -> Bool? {
         return configurationDictionary[key] as? Bool
     }
     
     /// Get an integer value from the configuration
-    private func integer(for key: String) -> Int? {
+    func integer(for key: String) -> Int? {
         return configurationDictionary[key] as? Int
     }
     
     /// Get a double value from the configuration
-    private func double(for key: String) -> Double? {
+    func double(for key: String) -> Double? {
         return configurationDictionary[key] as? Double
     }
 } 
