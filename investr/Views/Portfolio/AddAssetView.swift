@@ -295,6 +295,14 @@ struct AddAssetView: View {
                                     initialInterestRate = nil
                                 }
                             }
+                            .overlay(
+                                HStack {
+                                    Spacer()
+                                    Text("%")
+                                        .foregroundColor(Theme.Colors.secondaryText)
+                                        .padding(.trailing, 16)
+                                }
+                            )
                     }
                 }
                 .padding(.horizontal)
@@ -393,14 +401,12 @@ struct AddAssetView: View {
         
         Task {
             do {
-                var assetId = UUID().uuidString
-                var finalSymbol = assetSymbol
+                var finalSymbol = assetSymbol.isEmpty ? assetName.components(separatedBy: " ").map { $0.prefix(1) }.joined().uppercased() : assetSymbol
                 var finalName = assetName
                 var finalIsin = assetIsin
                 
                 // If we have a selected result from search and we didn't modify the values, use those
                 if let selected = selectedResult {
-                    assetId = selected.id
                     // Only use the selected result if the user hasn't modified the fields
                     if assetSymbol.isEmpty {
                         finalSymbol = selected.symbol
@@ -408,11 +414,9 @@ struct AddAssetView: View {
                     if assetName.isEmpty {
                         finalName = selected.name
                     }
-                }
-                
-                // Ensure we have at least a symbol if name is provided but symbol is empty
-                if finalSymbol.isEmpty && !finalName.isEmpty {
-                    finalSymbol = finalName.components(separatedBy: " ").map { $0.prefix(1) }.joined().uppercased()
+                    if assetIsin.isEmpty && selected.isin != nil {
+                        finalIsin = selected.isin!
+                    }
                 }
                 
                 // For savings accounts, generate a symbol if empty
@@ -428,12 +432,11 @@ struct AddAssetView: View {
                     type: selectedAssetType
                 )
                 
-                // Use the returned ID if available, otherwise use the generated one
-                if !newAssetId.isEmpty {
-                    assetId = newAssetId
-                }
+                // Determine the asset ID to use (either from Supabase or generate a new one if empty)
+                let assetId = newAssetId.isEmpty ? UUID().uuidString : newAssetId
+                print("Using asset ID: \(assetId) (from Supabase: \(!newAssetId.isEmpty))")
                 
-                // Create the asset in the model context
+                // Create the asset in the model context with the ID from Supabase or generated
                 let asset = Asset(
                     id: assetId,
                     symbol: finalSymbol,
@@ -446,24 +449,37 @@ struct AddAssetView: View {
                 
                 modelContext.insert(asset)
                 
-                // If interest rate is specified for savings accounts, add it to history
+                // Only add interest rate for savings accounts that have a rate specified
                 if selectedAssetType == .savings, let rate = initialInterestRate {
-                    let interestHistoryId = try await supabaseManager.addInterestRate(
-                        assetId: asset.id,
-                        rate: rate / 100, // Convert percentage to decimal
-                        startDate: Date()
-                    )
-                    
-                    let interestHistory = InterestRateHistory(
-                        id: interestHistoryId.isEmpty ? UUID().uuidString : interestHistoryId,
-                        asset_id: asset.id,
-                        rate: rate / 100, // Convert percentage to decimal
-                        start_date: Date(),
-                        created_at: Date(),
-                        updated_at: Date()
-                    )
-                    interestHistory.asset = asset
-                    modelContext.insert(interestHistory)
+                    do {
+                        // Try to add the interest rate history with the proper asset ID
+                        let interestHistoryId = try await supabaseManager.addInterestRate(
+                            assetId: assetId, // Using the ID returned from Supabase
+                            rate: rate, // No conversion - Supabase already stores percentages
+                            startDate: Date()
+                        )
+                        
+                        if !interestHistoryId.isEmpty {
+                            // Create the local SwiftData model with the ID from Supabase
+                            let interestHistory = InterestRateHistory(
+                                id: interestHistoryId,
+                                asset_id: assetId,
+                                rate: rate, // No conversion - store as percentage
+                                start_date: Date(),
+                                created_at: Date(),
+                                updated_at: Date()
+                            )
+                            interestHistory.asset = asset
+                            modelContext.insert(interestHistory)
+                        } else {
+                            print("Warning: Interest rate was added but no ID was returned")
+                        }
+                    } catch {
+                        // Log error but continue - we've at least created the asset
+                        print("Error adding interest rate: \(error.localizedDescription)")
+                        errorMessage = "Asset was created but interest rate could not be added: \(error.localizedDescription)"
+                        showError = true
+                    }
                 }
                 
                 // Call the completion handler

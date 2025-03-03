@@ -109,8 +109,10 @@ struct PortfolioAssetsListView: View {
             // Active assets section (quantity > 0) - Remove header
             if !activeAssets.isEmpty {
                 ForEach(activeAssets) { asset in
-                    NavigationLink(destination: AssetDetailView(asset: asset)) {
-                        AssetRowView(asset: asset, displayPerformanceAsPercentage: displayPerformanceAsPercentage)
+                    NavigationLink(destination: AssetDetailView(asset: asset)
+                        .navigationTransition(.zoom(sourceID: "asset-\(asset.id)", in: namespace))
+                    ) {
+                        AssetRowView(asset: asset, displayPerformanceAsPercentage: displayPerformanceAsPercentage, namespace: namespace)
                     }
                 }
             }
@@ -120,8 +122,10 @@ struct PortfolioAssetsListView: View {
                 DisclosureGroup(
                     content: {
                         ForEach(soldOutAssets) { asset in
-                            NavigationLink(destination: AssetDetailView(asset: asset)) {
-                                AssetRowView(asset: asset, displayPerformanceAsPercentage: displayPerformanceAsPercentage)
+                            NavigationLink(destination: AssetDetailView(asset: asset)
+                                .navigationTransition(.zoom(sourceID: "asset-\(asset.id)", in: namespace))
+                            ) {
+                                AssetRowView(asset: asset, displayPerformanceAsPercentage: displayPerformanceAsPercentage, namespace: namespace)
                             }
                         }
                     },
@@ -156,6 +160,7 @@ struct PortfolioAssetsListView: View {
 struct AssetRowView: View {
     let asset: AssetViewModel
     let displayPerformanceAsPercentage: Bool
+    var namespace: Namespace.ID? = nil
     
     var body: some View {
         HStack(spacing: Theme.Layout.spacing) {
@@ -170,70 +175,73 @@ struct AssetRowView: View {
             }
             .frame(width: 40, height: 40)
             
-            // Asset Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(asset.name)
-                    .font(Theme.Typography.bodyBold)
-                    .foregroundColor(Theme.Colors.primaryText)
-                    .lineLimit(1)
-                
-                Text(asset.symbol)
-                    .font(Theme.Typography.caption)
-                    .foregroundColor(Theme.Colors.secondaryText)
-            }
-            
-            Spacer()
-            
-            // Asset Value
-            VStack(alignment: .trailing, spacing: 4) {
-                if asset.quantity > 0 {
-                    Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
+            // Asset Info and Value Container
+            HStack {
+                // Asset Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(asset.name)
                         .font(Theme.Typography.bodyBold)
                         .foregroundColor(Theme.Colors.primaryText)
-                        .contentTransition(.numericText())
-                        .transaction { transaction in
-                            transaction.animation = .spring(duration: 0.3)
-                        }
-                } else {
-                    Text("Realized P&L")
+                        .lineLimit(1)
+                    
+                    Text(asset.symbol)
                         .font(Theme.Typography.caption)
                         .foregroundColor(Theme.Colors.secondaryText)
                 }
                 
-                HStack(spacing: 4) {
-                    // Show either percentage or actual value based on preference
-                    if displayPerformanceAsPercentage {
-                        // Percentage display
-                        Image(systemName: asset.percentChange >= 0 ? "arrow.up" : "arrow.down")
-                            .font(.system(size: 10))
-                            .foregroundColor(asset.percentChange >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                            .symbolRenderingMode(.hierarchical)
-                            .symbolEffect(.variableColor, options: .repeating, value: displayPerformanceAsPercentage)
-                        
-                        Text("\(FormatHelper.formatPercent(asset.percentChange))")
-                            .font(Theme.Typography.caption)
-                            .foregroundColor(asset.percentChange >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                Spacer()
+                
+                // Asset Value
+                VStack(alignment: .trailing, spacing: 4) {
+                    if asset.quantity > 0 {
+                        Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
+                            .font(Theme.Typography.bodyBold)
+                            .foregroundColor(Theme.Colors.primaryText)
                             .contentTransition(.numericText())
                             .transaction { transaction in
                                 transaction.animation = .spring(duration: 0.3)
                             }
                     } else {
-                        // Actual value display (P&L in currency)
-                        let profitLoss = calculateProfitLoss(asset: asset)
-                        
-                        Image(systemName: profitLoss >= 0 ? "arrow.up" : "arrow.down")
-                            .font(.system(size: 10))
-                            .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                            .symbolRenderingMode(.hierarchical)
-                            .symbolEffect(.variableColor, options: .repeating, value: displayPerformanceAsPercentage)
-                        
-                        Text("\(FormatHelper.formatCurrency(profitLoss)) €")
+                        Text("Realized P&L")
                             .font(Theme.Typography.caption)
-                            .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                            .contentTransition(.numericText())
-                            .transaction { transaction in
-                                transaction.animation = .spring(duration: 0.3)
-                            }
+                            .foregroundColor(Theme.Colors.secondaryText)
+                    }
+                    
+                    HStack(spacing: 4) {
+                        // Show either percentage or actual value based on preference
+                        if displayPerformanceAsPercentage {
+                            // Percentage display
+                            Image(systemName: asset.percentChange >= 0 ? "arrow.up" : "arrow.down")
+                                .font(.system(size: 10))
+                                .foregroundColor(asset.percentChange >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                .symbolRenderingMode(.hierarchical)
+                                .symbolEffect(.variableColor, options: .repeating, value: displayPerformanceAsPercentage)
+                            
+                            Text("\(FormatHelper.formatPercent(asset.percentChange))")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(asset.percentChange >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                .contentTransition(.numericText())
+                                .transaction { transaction in
+                                    transaction.animation = .spring(duration: 0.3)
+                                }
+                        } else {
+                            // Actual value display (P&L in currency)
+                            let profitLoss = calculateProfitLoss(asset: asset)
+                            
+                            Image(systemName: profitLoss >= 0 ? "arrow.up" : "arrow.down")
+                                .font(.system(size: 10))
+                                .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                .symbolRenderingMode(.hierarchical)
+                                .symbolEffect(.variableColor, options: .repeating, value: displayPerformanceAsPercentage)
+                            
+                            Text("\(FormatHelper.formatCurrency(profitLoss)) €")
+                                .font(Theme.Typography.caption)
+                                .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                                .contentTransition(.numericText())
+                                .transaction { transaction in
+                                    transaction.animation = .spring(duration: 0.3)
+                                }
+                        }
                     }
                 }
             }
@@ -241,6 +249,9 @@ struct AssetRowView: View {
         .padding(Theme.Layout.padding)
         .background(Theme.Colors.secondaryBackground)
         .cornerRadius(Theme.Layout.cornerRadius)
+        .if(namespace != nil) { view in
+            view.matchedTransitionSource(id: "asset-\(asset.id)", in: namespace!)
+        }
     }
     
     // Helper to calculate the actual profit/loss value
@@ -294,6 +305,19 @@ struct AssetRowSkeletonView: View {
         .padding(Theme.Layout.padding)
         .background(Theme.Colors.secondaryBackground)
         .cornerRadius(Theme.Layout.cornerRadius)
+    }
+}
+
+// Add extension after the last closing brace of the file
+// Extension to conditionally apply modifiers
+extension View {
+    @ViewBuilder
+    func `if`<Transform: View>(_ condition: Bool, transform: (Self) -> Transform) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
 

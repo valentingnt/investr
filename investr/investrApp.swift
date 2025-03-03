@@ -156,29 +156,73 @@ class SupabaseManager: ObservableObject {
             type: type.rawValue
         )
         
+        print("Sending asset data to Supabase: \(assetData)")
+        
         let response = try await client
             .from("assets")
             .insert(assetData)
             .execute()
+        
+        print("Received asset response with status: \(response.status)")
+        print("Response data: \(String(data: response.data, encoding: .utf8) ?? "Unable to convert to string")")
         
         if response.status >= 200 && response.status < 300 {
             // Try to extract the ID of the newly created asset
             do {
                 let assets = try JSONDecoder().decode([AssetResponse].self, from: response.data)
                 if let newAsset = assets.first {
+                    print("Successfully decoded asset with ID: \(newAsset.id)")
                     return newAsset.id
+                } else {
+                    print("No asset was returned in the response")
                 }
             } catch {
                 print("Error decoding asset response: \(error)")
+                // Try alternative decoding approach for different response formats
+                if let jsonObject = try? JSONSerialization.jsonObject(with: response.data) as? [[String: Any]],
+                   let firstAsset = jsonObject.first,
+                   let assetId = firstAsset["id"] as? String {
+                    print("Successfully extracted asset ID using JSONSerialization: \(assetId)")
+                    return assetId
+                }
             }
             
-            // If we couldn't get the ID, return success but empty string
+            // If we couldn't get the ID, query for the asset we just created
+            do {
+                // Small delay to allow the database to process the insertion
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
+                
+                // Query for the most recent asset with matching details
+                let fetchResponse = try await client
+                    .from("assets")
+                    .select()
+                    .eq("symbol", value: symbol)
+                    .eq("name", value: name)
+                    .eq("type", value: type.rawValue)
+                    .order("created_at", ascending: false)
+                    .limit(1)
+                    .execute()
+                
+                print("Query response: \(String(data: fetchResponse.data, encoding: .utf8) ?? "Unable to convert to string")")
+                
+                if let assetData = try? JSONDecoder().decode([AssetResponse].self, from: fetchResponse.data),
+                   let asset = assetData.first {
+                    print("Found matching asset with ID: \(asset.id)")
+                    return asset.id
+                }
+            } catch {
+                print("Error fetching newly created asset: \(error)")
+            }
+            
+            print("CRITICAL: Could not retrieve asset ID after successful creation")
             return ""
         } else {
+            let errorMsg = "Failed to add asset: Status \(response.status), Response: \(String(data: response.data, encoding: .utf8) ?? "No data")"
+            print(errorMsg)
             throw NSError(
                 domain: "SupabaseManager",
                 code: response.status,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to add asset: Status \(response.status)"]
+                userInfo: [NSLocalizedDescriptionKey: errorMsg]
             )
         }
     }

@@ -272,10 +272,10 @@ struct AddTransactionView: View {
                 let total: Double
                 
                 if asset.type == .savings {
-                    // For savings, quantity is 1 and price per unit is the total amount
-                    qty = 1.0
+                    // For savings, quantity is the total amount and price per unit is 1.0
                     total = totalAmountValue ?? 0
-                    priceUnit = total
+                    qty = total  // Set quantity to the total amount
+                    priceUnit = 1.0  // Price per unit is always 1.0 for savings
                 } else {
                     // For other assets, use the entered values
                     qty = quantityValue ?? 0

@@ -16,106 +16,44 @@ struct AssetDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Layout.spacing) {
-                // Asset Header
-                VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
-                    HStack {
-                        Text(asset.name)
-                            .font(Theme.Typography.title2)
-                            .foregroundColor(Theme.Colors.primaryText)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.9)
-                        
-                        Spacer()
-                        
-                        assetTypeTag
-                    }
-                    
-                    Text(asset.symbol)
-                        .font(Theme.Typography.caption)
-                        .foregroundColor(Theme.Colors.secondaryText)
-                }
-                
-                // Current Value
-                VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
-                    Text(asset.quantity > 0 ? "Current Value" : "Final Performance")
-                        .font(Theme.Typography.caption)
-                        .foregroundColor(Theme.Colors.secondaryText)
-                    
-                    if asset.quantity > 0 {
-                        Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
-                            .font(Theme.Typography.largePrice)
-                            .foregroundColor(Theme.Colors.primaryText)
-                            .contentTransition(.numericText())
-                            .transaction { transaction in
-                                transaction.animation = .spring(duration: 0.3)
-                            }
-                    }
-                    
-                    HStack {
-                        HStack(spacing: 4) {
-                            if displayPerformanceAsPercentage {
-                                // Show percentage performance
-                                Image(systemName: asset.percentChange >= 0 ? "arrow.up" : "arrow.down")
-                                    .font(Theme.Typography.caption)
-                                    .foregroundColor(asset.percentChange >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .symbolEffect(.pulse, options: .repeating, isActive: asset.percentChange.magnitude > 5)
-                                
-                                Text("\(FormatHelper.formatPercent(asset.percentChange))")
-                                    .font(Theme.Typography.bodyBold)
-                                    .foregroundColor(asset.percentChange >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                                    .contentTransition(.numericText())
-                                    .transaction { transaction in
-                                        transaction.animation = .spring(duration: 0.3)
-                                    }
-                            } else {
-                                // Show monetary value performance
-                                let profitLoss = calculateProfitLoss(asset: asset)
-                                
-                                Image(systemName: profitLoss >= 0 ? "arrow.up" : "arrow.down")
-                                    .font(Theme.Typography.caption)
-                                    .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .symbolEffect(.pulse, options: .repeating, isActive: profitLoss.magnitude > 50)
-                                
-                                Text("\(FormatHelper.formatCurrency(profitLoss)) €")
-                                    .font(Theme.Typography.bodyBold)
-                                    .foregroundColor(profitLoss >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
-                                    .contentTransition(.numericText())
-                                    .transaction { transaction in
-                                        transaction.animation = .spring(duration: 0.3)
-                                    }
-                            }
+                // Asset Header and Current Value Container - This will zoom from the list
+                VStack(alignment: .leading, spacing: Theme.Layout.spacing) {
+                    // Asset Header
+                    VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
+                        HStack {
+                            Text(asset.name)
+                                .font(Theme.Typography.title2)
+                                .foregroundColor(Theme.Colors.primaryText)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.9)
+                            
+                            Spacer()
+                            
+                            assetTypeTag
                         }
                         
-                        Spacer()
+                        Text(asset.symbol)
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(Theme.Colors.secondaryText)
+                    }
+                    
+                    // Current Value
+                    VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
+                        Text(asset.quantity > 0 ? "Current Value" : "Final Performance")
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(Theme.Colors.secondaryText)
                         
-                        // Integrated subtle toggle - with better SF Symbol animations
-                        Button(action: {
-                            withAnimation(.spring(duration: 0.5)) {
-                                displayPerformanceAsPercentage.toggle()
-                            }
-                        }) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Theme.Colors.accent.opacity(0.1))
-                                    .frame(width: 32, height: 32)
-                                
-                                Image(systemName: displayPerformanceAsPercentage ? "eurosign.circle" : "percent")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Theme.Colors.accent)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .symbolEffect(.bounce, options: .speed(1.5), value: displayPerformanceAsPercentage)
-                            }
-                        }
-                        .transaction { transaction in
-                            transaction.animation = .spring(duration: 0.4)
+                        if asset.quantity > 0 {
+                            Text("\(FormatHelper.formatCurrency(asset.totalValue)) €")
+                                .font(Theme.Typography.largePrice)
+                                .foregroundColor(Theme.Colors.primaryText)
+                                .contentTransition(.numericText())
+                                .transaction { transaction in
+                                    transaction.animation = .spring(duration: 0.3)
+                                }
                         }
                     }
                 }
-                .padding()
-                .background(Theme.Colors.secondaryBackground)
-                .cornerRadius(Theme.Layout.cornerRadius)
                 
                 // Holding Summary
                 VStack(alignment: .leading, spacing: Theme.Layout.smallSpacing) {
@@ -190,6 +128,20 @@ struct AssetDetailView: View {
         .background(Theme.Colors.background.ignoresSafeArea())
         .navigationTitle("Asset Details")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    dismiss()
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                    .foregroundColor(Theme.Colors.accent)
+                }
+            }
+        }
         .sheet(isPresented: $showingAddTransaction) {
             AddTransactionView(assets: [asset]) {
                 // Reload data after adding a transaction
