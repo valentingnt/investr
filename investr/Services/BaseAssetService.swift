@@ -35,26 +35,48 @@ class BaseAssetService {
         let price = priceData?.price ?? 0.0
         let totalValue = totalQuantity * price
         
-        // Only calculate these if we have valid data to avoid NaN or infinite values
-        let profitLoss = totalValue - totalCost
-        let profitLossPercentage = totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0
+        // For assets with zero quantity but with transactions,
+        // we need to calculate historical performance
+        var profitLossPercentage: Double = 0
+        
+        if totalQuantity == 0 && !transactions.isEmpty {
+            // Calculate the historical performance based on buy/sell transactions
+            let totalBuyCost = transactions.filter { $0.type == .buy }
+                .reduce(0) { $0 + $1.total_amount }
+            
+            let totalSellValue = transactions.filter { $0.type == .sell }
+                .reduce(0) { $0 + $1.total_amount }
+            
+            // Calculate P&L for closed positions (completely sold assets)
+            // We need to ensure buys and sells balance out (quantity = 0)
+            let totalBoughtQuantity = transactions.filter { $0.type == .buy }
+                .reduce(0) { $0 + $1.quantity }
+            
+            let totalSoldQuantity = transactions.filter { $0.type == .sell }
+                .reduce(0) { $0 + $1.quantity }
+                
+            // Only calculate if quantities match (fully sold position) and there were buys
+            if abs(totalBoughtQuantity - totalSoldQuantity) < 0.0001 && totalBuyCost > 0 {
+                profitLossPercentage = ((totalSellValue - totalBuyCost) / totalBuyCost) * 100
+                print("Closed position P&L for \(asset.name): Buy cost \(totalBuyCost), Sell value \(totalSellValue), P&L% \(profitLossPercentage)")
+            }
+        } else {
+            // Normal case for assets with quantity
+            let profitLoss = totalValue - totalCost
+            profitLossPercentage = totalCost > 0 ? (profitLoss / totalCost) * 100 : 0
+        }
         
         return AssetViewModel(
             id: asset.id,
-            name: asset.name,
             symbol: asset.symbol,
+            name: asset.name,
             type: asset.type,
+            quantity: totalQuantity,
+            avgPurchasePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
             currentPrice: price,
             totalValue: totalValue,
-            totalQuantity: totalQuantity,
-            averagePrice: totalQuantity > 0 ? totalCost / totalQuantity : 0,
-            profitLoss: profitLoss,
-            profitLossPercentage: profitLossPercentage,
-            change24h: priceData?.change24h,
-            dayHigh: priceData?.dayHigh,
-            dayLow: priceData?.dayLow,
-            previousClose: priceData?.previousClose,
-            volume: priceData?.volume
+            percentChange: profitLossPercentage,
+            transactions: transactions
         )
     }
 } 

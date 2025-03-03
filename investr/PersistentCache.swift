@@ -134,36 +134,14 @@ final class PersistentCache {
         userDefaults.set(viewModel.name, forKey: keyPrefix + "name")
         userDefaults.set(viewModel.symbol, forKey: keyPrefix + "symbol")
         userDefaults.set(viewModel.type.rawValue, forKey: keyPrefix + "type")
+        userDefaults.set(viewModel.quantity, forKey: keyPrefix + "quantity")
+        userDefaults.set(viewModel.avgPurchasePrice, forKey: keyPrefix + "avgPurchasePrice")
         userDefaults.set(viewModel.currentPrice, forKey: keyPrefix + "currentPrice")
         userDefaults.set(viewModel.totalValue, forKey: keyPrefix + "totalValue")
-        userDefaults.set(viewModel.totalQuantity, forKey: keyPrefix + "totalQuantity")
-        userDefaults.set(viewModel.averagePrice, forKey: keyPrefix + "averagePrice")
-        userDefaults.set(viewModel.profitLoss, forKey: keyPrefix + "profitLoss")
-        userDefaults.set(viewModel.profitLossPercentage, forKey: keyPrefix + "profitLossPercentage")
+        userDefaults.set(viewModel.percentChange, forKey: keyPrefix + "percentChange")
         
-        // Optional fields
-        if let change24h = viewModel.change24h {
-            userDefaults.set(change24h, forKey: keyPrefix + "change24h")
-        }
-        if let dayHigh = viewModel.dayHigh {
-            userDefaults.set(dayHigh, forKey: keyPrefix + "dayHigh")
-        }
-        if let dayLow = viewModel.dayLow {
-            userDefaults.set(dayLow, forKey: keyPrefix + "dayLow")
-        }
-        if let previousClose = viewModel.previousClose {
-            userDefaults.set(previousClose, forKey: keyPrefix + "previousClose")
-        }
-        if let volume = viewModel.volume {
-            userDefaults.set(volume, forKey: keyPrefix + "volume")
-        }
-        if let interestRate = viewModel.interest_rate {
-            userDefaults.set(interestRate, forKey: keyPrefix + "interest_rate")
-        }
-        if let accruedInterest = viewModel.accruedInterest {
-            userDefaults.set(accruedInterest, forKey: keyPrefix + "accruedInterest")
-        }
-        userDefaults.set(viewModel.hasTransactions, forKey: keyPrefix + "hasTransactions")
+        // We don't store the transactions directly since they may contain complex objects
+        userDefaults.set(!viewModel.transactions.isEmpty, forKey: keyPrefix + "hasTransactions")
         
         // Set timestamp
         userDefaults.set(Date(), forKey: assetTimestampPrefix + viewModel.id)
@@ -184,51 +162,25 @@ final class PersistentCache {
             return nil
         }
         
+        let quantity = userDefaults.double(forKey: keyPrefix + "quantity")
+        let avgPurchasePrice = userDefaults.double(forKey: keyPrefix + "avgPurchasePrice")
         let currentPrice = userDefaults.double(forKey: keyPrefix + "currentPrice")
         let totalValue = userDefaults.double(forKey: keyPrefix + "totalValue")
-        let totalQuantity = userDefaults.double(forKey: keyPrefix + "totalQuantity")
-        let averagePrice = userDefaults.double(forKey: keyPrefix + "averagePrice")
-        let profitLoss = userDefaults.double(forKey: keyPrefix + "profitLoss")
-        let profitLossPercentage = userDefaults.double(forKey: keyPrefix + "profitLossPercentage")
+        let percentChange = userDefaults.double(forKey: keyPrefix + "percentChange")
         
-        // Create view model
-        var viewModel = AssetViewModel(
+        // Create view model with empty transactions array since we don't store transactions in UserDefaults
+        // The transactions will be loaded separately when needed
+        return AssetViewModel(
             id: id,
-            name: name,
             symbol: symbol,
+            name: name,
             type: type,
+            quantity: quantity,
+            avgPurchasePrice: avgPurchasePrice,
             currentPrice: currentPrice,
             totalValue: totalValue,
-            totalQuantity: totalQuantity,
-            averagePrice: averagePrice,
-            profitLoss: profitLoss,
-            profitLossPercentage: profitLossPercentage
+            percentChange: percentChange,
+            transactions: []
         )
-        
-        // Optional fields
-        if userDefaults.object(forKey: keyPrefix + "change24h") != nil {
-            viewModel.change24h = userDefaults.double(forKey: keyPrefix + "change24h")
-        }
-        if userDefaults.object(forKey: keyPrefix + "dayHigh") != nil {
-            viewModel.dayHigh = userDefaults.double(forKey: keyPrefix + "dayHigh")
-        }
-        if userDefaults.object(forKey: keyPrefix + "dayLow") != nil {
-            viewModel.dayLow = userDefaults.double(forKey: keyPrefix + "dayLow")
-        }
-        if userDefaults.object(forKey: keyPrefix + "previousClose") != nil {
-            viewModel.previousClose = userDefaults.double(forKey: keyPrefix + "previousClose")
-        }
-        if userDefaults.object(forKey: keyPrefix + "volume") != nil {
-            viewModel.volume = userDefaults.double(forKey: keyPrefix + "volume")
-        }
-        if userDefaults.object(forKey: keyPrefix + "interest_rate") != nil {
-            viewModel.interest_rate = userDefaults.double(forKey: keyPrefix + "interest_rate")
-        }
-        if userDefaults.object(forKey: keyPrefix + "accruedInterest") != nil {
-            viewModel.accruedInterest = userDefaults.double(forKey: keyPrefix + "accruedInterest")
-        }
-        viewModel.hasTransactions = userDefaults.bool(forKey: keyPrefix + "hasTransactions")
-        
-        return viewModel
     }
 } 

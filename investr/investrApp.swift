@@ -100,17 +100,21 @@ class SupabaseManager: ObservableObject {
     
     // Helper method to set error and related properties
     func setError(_ error: Error) {
-        self.error = error
-        self.errorMessage = error.localizedDescription
-        self.hasError = true
-        print("Error set: \(errorMessage)")
+        Task { @MainActor in
+            self.error = error
+            self.errorMessage = error.localizedDescription
+            self.hasError = true
+            print("Error set: \(errorMessage)")
+        }
     }
     
     // Helper method to clear error state
     func clearError() {
-        self.error = nil
-        self.errorMessage = ""
-        self.hasError = false
+        Task { @MainActor in
+            self.error = nil
+            self.errorMessage = ""
+            self.hasError = false
+        }
     }
     
     // MARK: - Assets Functions

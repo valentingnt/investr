@@ -90,15 +90,15 @@ final class AssetServiceManager {
         // Otherwise create a placeholder with minimal data
         return AssetViewModel(
             id: asset.id,
-            name: asset.name,
             symbol: asset.symbol,
+            name: asset.name,
             type: asset.type,
+            quantity: 0.0,
+            avgPurchasePrice: 0.0,
             currentPrice: 0.0,
             totalValue: 0.0,
-            totalQuantity: 0.0,
-            averagePrice: 0.0,
-            profitLoss: 0.0,
-            profitLossPercentage: 0.0
+            percentChange: 0.0,
+            transactions: []
         )
     }
     
@@ -252,15 +252,9 @@ final class AssetServiceManager {
                 transactions: transactions
             )
         case .savings:
-            guard let interestRateHistory = interestRateHistory,
-                  let supabaseManager = supabaseManager else {
-                return nil
-            }
             viewModel = await savingsService.enrichAssetWithPriceAndTransactions(
                 asset: asset,
-                transactions: transactions,
-                interestRateHistory: interestRateHistory,
-                supabaseManager: supabaseManager
+                transactions: transactions
             )
         }
         

@@ -2,17 +2,7 @@ import Foundation
 
 // MARK: - ETF Service
 final class ETFService: BaseAssetService, AssetServiceProtocol {
-    // Emergency fallback data for common ETFs and stocks
-    private let emergencyPriceData: [String: PriceData] = [
-        "AAPL": PriceData(price: 180.75, change24h: 0.5),
-        "MSFT": PriceData(price: 410.34, change24h: 0.3),
-        "GOOGL": PriceData(price: 175.50, change24h: -0.2),
-        "AMZN": PriceData(price: 185.25, change24h: 0.8),
-        "VOO": PriceData(price: 470.80, change24h: 0.1),
-        "SPY": PriceData(price: 510.40, change24h: 0.2),
-        "WPEA.PA": PriceData(price: 21.15, change24h: 0.3),
-        "ESE.PA": PriceData(price: 63.78, change24h: 0.2)
-    ]
+    // Emergency fallback data for common ETFs and stocks removed
     
     // Cache for API responses to reduce redundant API calls
     private var priceCache: [String: (price: PriceData, timestamp: Date)] = [:]
@@ -30,14 +20,10 @@ final class ETFService: BaseAssetService, AssetServiceProtocol {
         } catch {
             print("⚠️ ETFService error for \(asset.symbol): \(error.localizedDescription)")
             
-            // Try fallback data if available
-            if let fallback = emergencyPriceData[asset.symbol] {
-                print("Using fallback data for \(asset.symbol)")
-                return createBaseViewModel(asset: asset, priceData: fallback, transactions: transactions)
-            }
-            
-            // Return a basic model with no price data
-            return createBaseViewModel(asset: asset, priceData: nil, transactions: transactions)
+            // Don't use fallback data, instead create a model with 0 price
+            // This ensures we still have the asset in the UI but without fake data
+            let emptyPriceData = PriceData(price: 0, change24h: 0)
+            return createBaseViewModel(asset: asset, priceData: emptyPriceData, transactions: transactions)
         }
     }
     
@@ -75,8 +61,8 @@ final class ETFService: BaseAssetService, AssetServiceProtocol {
         
         // Check if we have a valid API key
         if !ConfigurationManager.shared.hasValidRapidAPIKey {
-            print("Warning: No valid RapidAPI key found for ETFService. Using mock data.")
-            // Return mock data instead of failing
+            print("Warning: No valid RapidAPI key found for ETFService. Using 0 price.")
+            // Return empty price data instead of mock data
             return PriceData(price: 0, change24h: 0)
         }
         
@@ -126,11 +112,8 @@ final class ETFService: BaseAssetService, AssetServiceProtocol {
                 return try await group.next() ?? PriceData.empty()
             }
         } catch {
-            // For severe errors, try to provide fallback data
-            if let fallback = emergencyPriceData[symbol] {
-                return fallback
-            }
-            throw error
+            // For severe errors, return empty price data without using fallback
+            return PriceData(price: 0, change24h: 0)
         }
     }
 } 
